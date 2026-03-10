@@ -91,7 +91,7 @@
             android:key="realtime_out_url"
             android:title="Output WebSocket URL"
             android:summary="URL để gửi PCM từ điện thoại → web (dt1 → server → browser)"
-            android:defaultValue="ws://192.168.1.100:8081/out"
+            android:defaultValue="ws://192.168.1.100:8081/out?session=default"
             android:inputType="textUri"
             android:dependency="enable_realtime_bridge"
             app:iconSpaceReserved="false" />

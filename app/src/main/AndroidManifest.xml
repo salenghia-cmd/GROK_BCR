@@ -53,12 +53,7 @@
             android:name=".NotificationActionService"
             android:exported="false" />
 
-        <!-- Service mới cho realtime bridge (Pha 2+) -->
-        <service
-            android:name=".bridge.RealtimeBridgeService"
-            android:exported="false"
-            android:enabled="true"
-            android:foregroundServiceType="microphone" /> <!-- có thể thêm microphone nếu service dùng mic, tạm để vậy cho build -->
+
 
         <receiver
             android:name=".DirectBootMigrationReceiver"

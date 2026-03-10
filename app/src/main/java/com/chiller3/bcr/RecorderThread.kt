@@ -76,7 +76,12 @@ class RecorderThread(
     private val tag = "${RecorderThread::class.java.simpleName}/$threadIdCompat"
     private val prefs = Preferences(context)
 	
-	private val websocketUrl = prefs.websocketUrl
+	private val websocketUrl: String?
+    get() = if (prefs.enableRealtimeBridge) {
+        prefs.resolvePrimaryWsUrl()
+    } else {
+        null
+    }
 		private var webSocket: WebSocket? = null
 		private val httpClient = OkHttpClient.Builder()
 			.connectTimeout(10, TimeUnit.SECONDS)
@@ -264,24 +269,54 @@ class RecorderThread(
     }
 
 
-	    private fun connectWebSocket() {
-        if (websocketUrl == null) return
-        Log.i(tag, "Connecting WebSocket: $websocketUrl")
+private fun connectWebSocket() {
+    val wsUrl = websocketUrl
 
-        val request = Request.Builder().url(websocketUrl!!).build()
-        webSocket = httpClient.newWebSocket(request, object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: okhttp3.Response) {
-                Log.i(tag, "WebSocket connected")
-                // Gửi header JSON
-                val header = """{"sample_rate":$sampleRate,"channels":${if (sources.size == 2) 2 else 1},"bits":16,"format":"pcm_s16le"}"""
-                webSocket.send(header)
-            }
-
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: okhttp3.Response?) {
-                Log.e(tag, "WebSocket failed", t)
-            }
-        })
+    if (wsUrl.isNullOrBlank()) {
+        Log.i(tag, "Realtime bridge disabled or websocket URL is empty")
+        return
     }
+
+    Log.i(tag, "Connecting WebSocket: $wsUrl")
+
+    val request = Request.Builder()
+        .url(wsUrl)
+        .build()
+
+    webSocket = httpClient.newWebSocket(request, object : WebSocketListener() {
+        override fun onOpen(webSocket: WebSocket, response: okhttp3.Response) {
+            Log.i(tag, "WebSocket connected")
+
+            val header = """
+                {
+                  "type":"audio_format",
+                  "sample_rate":$sampleRate,
+                  "channels":${if (sources.size == 2) 2 else 1},
+                  "bits":16,
+                  "format":"pcm_s16le"
+                }
+            """.trimIndent().replace("\n", "")
+
+            webSocket.send(header)
+        }
+
+        override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+            Log.i(tag, "WebSocket closing: code=$code, reason=$reason")
+        }
+
+        override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+            Log.i(tag, "WebSocket closed: code=$code, reason=$reason")
+        }
+
+        override fun onFailure(
+            webSocket: WebSocket,
+            t: Throwable,
+            response: okhttp3.Response?
+        ) {
+            Log.e(tag, "WebSocket failed", t)
+        }
+    })
+}
 
     private fun sendPcmChunk(pcmBytes: ByteArray) {
     webSocket?.send(pcmBytes.toByteString()) ?: return
