@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Pha 1 - Web nghe dt2 qua dt1</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 900px;
+      margin: 20px auto;
+      padding: 0 16px;
+      line-height: 1.45;
+    }
+    .row { margin-bottom: 12px; }
+    label { display: inline-block; min-width: 120px; }
+    input {
+      width: 100%;
+      max-width: 560px;
+      padding: 8px;
+      box-sizing: border-box;
+    }
+    button {
+      padding: 8px 14px;
+      margin-right: 8px;
+      cursor: pointer;
+    }
+    #log {
+      background: #111;
+      color: #0f0;
+      padding: 12px;
+      min-height: 220px;
+      white-space: pre-wrap;
+      overflow: auto;
+      border-radius: 6px;
+    }
+    .status {
+      font-weight: bold;
+      margin-bottom: 12px;
+    }
+    .card {
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 14px;
+      margin-bottom: 14px;
+    }
+  </style>
+</head>
+<body>
+  <h2>Pha 1 - Web nghe dt2 qua dt1 root</h2>
+
+  <div class="card">
+    <div class="row">
+      <label>Session</label>
+      <input id="sessionId" value="default" />
+    </div>
+
+    <div class="row">
+      <label>WS listen URL</label>
+      <input id="listenUrl" />
+    </div>
+
+    <div class="row">
+      <button id="btnConnect">Connect</button>
+      <button id="btnDisconnect">Disconnect</button>
+      <button id="btnResumeAudio">Bật audio</button>
+    </div>
+
+    <div class="status">Trạng thái: <span id="status">idle</span></div>
+    <div>Header audio: <span id="meta">chưa có</span></div>
+  </div>
+
+  <div class="card">
+    <h3>Log</h3>
+    <div id="log"></div>
+  </div>
+
+  <script>
+    const statusEl = document.getElementById('status');
+    const metaEl = document.getElementById('meta');
+    const logEl = document.getElementById('log');
+    const sessionInput = document.getElementById('sessionId');
+    const listenUrlInput = document.getElementById('listenUrl');
+
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    listenUrlInput.value = `${proto}://${location.host}/listen?session=default`;
+
+    let ws = null;
+    let audioCtx = null;
+    let nextPlayTime = 0;
+    let audioMeta = null;
+
+    function log(...args) {
+      const line = args.map(v => typeof v === 'string' ? v : JSON.stringify(v)).join(' ');
+      logEl.textContent += line + '\n';
+      logEl.scrollTop = logEl.scrollHeight;
+      console.log(...args);
+    }
+
+    function setStatus(text) {
+      statusEl.textContent = text;
+    }
+
+    function refreshListenUrl() {
+      const s = encodeURIComponent(sessionInput.value || 'default');
+      listenUrlInput.value = `${proto}://${location.host}/listen?session=${s}`;
+    }
+
+    sessionInput.addEventListener('input', refreshListenUrl);
+
+    async function ensureAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioCtx.state !== 'running') {
+        await audioCtx.resume();
+      }
+    }
+
+    function parseHeader(text) {
+      try {
+        const obj = JSON.parse(text);
+
+        if (
+          typeof obj.sample_rate === 'number' &&
+          typeof obj.channels === 'number' &&
+          typeof obj.bits === 'number'
+        ) {
+          audioMeta = {
+            sampleRate: obj.sample_rate,
+            channels: obj.channels,
+            bits: obj.bits,
+            format: obj.format || 'pcm_s16le'
+          };
+          metaEl.textContent =
+            `sampleRate=${audioMeta.sampleRate}, channels=${audioMeta.channels}, bits=${audioMeta.bits}, format=${audioMeta.format}`;
+          log('Audio header:', audioMeta);
+          return true;
+        }
+      } catch (_) {}
+      return false;
+    }
+
+    function playPcmChunk(arrayBuffer) {
+      if (!audioMeta) {
+        log('Chưa có audio header, bỏ qua chunk');
+        return;
+      }
+
+      if (!audioCtx) {
+        log('AudioContext chưa khởi tạo, bấm "Bật audio" trước');
+        return;
+      }
+
+      const channels = audioMeta.channels;
+      const bytesPerSample = 2;
+      const frameCount = arrayBuffer.byteLength / (channels * bytesPerSample);
+
+      if (!frameCount || frameCount < 1) return;
+
+      const audioBuffer = audioCtx.createBuffer(
+        channels,
+        frameCount,
+        audioMeta.sampleRate
+      );
+
+      const view = new DataView(arrayBuffer);
+
+      for (let ch = 0; ch < channels; ch++) {
+        const out = audioBuffer.getChannelData(ch);
+        for (let i = 0; i < frameCount; i++) {
+          const sampleIndex = (i * channels + ch) * 2;
+          const s = view.getInt16(sampleIndex, true);
+          out[i] = Math.max(-1, Math.min(1, s / 32768));
+        }
+      }
+
+      const src = audioCtx.createBufferSource();
+      src.buffer = audioBuffer;
+      src.connect(audioCtx.destination);
+
+      const now = audioCtx.currentTime;
+
+      if (nextPlayTime < now + 0.05) {
+        nextPlayTime = now + 0.05;
+      }
+
+      if (nextPlayTime - now > 1.5) {
+        nextPlayTime = now + 0.05;
+      }
+
+      src.start(nextPlayTime);
+      nextPlayTime += audioBuffer.duration;
+    }
+
+    async function connectWs() {
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+        log('WS đã tồn tại');
+        return;
+      }
+
+      await ensureAudio();
+
+      const url = listenUrlInput.value.trim();
+      ws = new WebSocket(url);
+      ws.binaryType = 'arraybuffer';
+
+      setStatus('connecting');
+      log('Connecting:', url);
+
+      ws.onopen = () => {
+        setStatus('connected');
+        log('WS connected');
+      };
+
+      ws.onmessage = async (event) => {
+        if (typeof event.data === 'string') {
+          const ok = parseHeader(event.data);
+          if (!ok) log('Text message:', event.data);
+          return;
+        }
+
+        if (event.data instanceof ArrayBuffer) {
+          playPcmChunk(event.data);
+          return;
+        }
+
+        if (event.data instanceof Blob) {
+          const ab = await event.data.arrayBuffer();
+          playPcmChunk(ab);
+        }
+      };
+
+      ws.onerror = (e) => {
+        setStatus('error');
+        log('WS error', e?.message || '(xem console)');
+      };
+
+      ws.onclose = (e) => {
+        setStatus('closed');
+        log(`WS closed code=${e.code} reason=${e.reason || ''}`);
+        ws = null;
+      };
+    }
+
+    function disconnectWs() {
+      if (ws) {
+        ws.close(1000, 'manual disconnect');
+        ws = null;
+      }
+      setStatus('idle');
+    }
+
+    document.getElementById('btnConnect').addEventListener('click', connectWs);
+    document.getElementById('btnDisconnect').addEventListener('click', disconnectWs);
+    document.getElementById('btnResumeAudio').addEventListener('click', ensureAudio);
+
+    refreshListenUrl();
+  </script>
+</body>
+</html>
