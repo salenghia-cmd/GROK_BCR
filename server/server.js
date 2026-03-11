@@ -1,324 +1,229 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { URL } = require('url');
-const { WebSocketServer, WebSocket } = require('ws');
+const url = require('url');
+const WebSocket = require('ws');
 
 const HOST = '0.0.0.0';
-const PORT = 8081;
-
-const WEB_DIR = __dirname;
-const INDEX_FILE = path.join(WEB_DIR, 'index.html');
-
-const MIME_TYPES = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'application/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.txt': 'text/plain; charset=utf-8',
-  '.ico': 'image/x-icon',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.svg': 'image/svg+xml',
-};
-
-function log(...args) {
-  console.log(new Date().toISOString(), ...args);
-}
-
-function sendJson(res, statusCode, obj) {
-  const body = JSON.stringify(obj);
-  res.writeHead(statusCode, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': Buffer.byteLength(body),
-    'Access-Control-Allow-Origin': '*',
-  });
-  res.end(body);
-}
-
-function serveFile(res, filePath) {
-  fs.readFile(filePath, (err, data) => {
-    if (err) {
-      sendJson(res, 404, { ok: false, error: 'File not found' });
-      return;
-    }
-
-    const ext = path.extname(filePath).toLowerCase();
-    const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-
-    res.writeHead(200, {
-      'Content-Type': contentType,
-      'Content-Length': data.length,
-      'Cache-Control': 'no-cache',
-      'Access-Control-Allow-Origin': '*',
-    });
-    res.end(data);
-  });
-}
-
-const httpServer = http.createServer((req, res) => {
-  try {
-    const url = new URL(req.url, `http://${req.headers.host}`);
-
-    if (url.pathname === '/health') {
-      const snapshot = {};
-      for (const [sessionId, s] of sessions.entries()) {
-        snapshot[sessionId] = {
-          hasProducer: !!s.producer,
-          listeners: s.listeners.size,
-        };
-      }
-
-      return sendJson(res, 200, {
-        ok: true,
-        host: HOST,
-        port: PORT,
-        sessions: snapshot,
-      });
-    }
-
-    let requestedPath = url.pathname;
-    if (requestedPath === '/') {
-      requestedPath = '/index.html';
-    }
-
-    const safePath = path.normalize(requestedPath).replace(/^(\.\.[/\\])+/, '');
-    const fullPath = path.join(WEB_DIR, safePath);
-
-    if (!fullPath.startsWith(WEB_DIR)) {
-      return sendJson(res, 403, { ok: false, error: 'Forbidden' });
-    }
-
-    if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
-      return serveFile(res, fullPath);
-    }
-
-    if (path.basename(fullPath) === 'index.html' && fs.existsSync(INDEX_FILE)) {
-      return serveFile(res, INDEX_FILE);
-    }
-
-    return sendJson(res, 404, { ok: false, error: 'Not found' });
-  } catch (err) {
-    log('HTTP error:', err);
-    return sendJson(res, 500, { ok: false, error: 'Internal server error' });
-  }
-});
-
-const wss = new WebSocketServer({ server: httpServer });
+const PORT = Number(process.env.PORT || 8081);
+const WEB_ROOT = __dirname;
+const INDEX_FILE = path.join(WEB_ROOT, 'index.html');
 
 const sessions = new Map();
 
 function getSession(sessionId) {
-  let session = sessions.get(sessionId);
-  if (!session) {
-    session = {
-      producer: null,
-      listeners: new Set(),
-    };
-    sessions.set(sessionId, session);
+  if (!sessions.has(sessionId)) {
+    sessions.set(sessionId, {
+      handset: null,
+      webs: new Set(),
+      meta: {
+        sampleRate: 8000,
+        channels: 1,
+        bits: 16,
+        format: 'pcm_s16le',
+      },
+      lastState: null,
+      createdAt: Date.now(),
+    });
   }
-  return session;
+  return sessions.get(sessionId);
 }
 
-function cleanupSessionIfEmpty(sessionId) {
+function cleanupSession(sessionId) {
   const s = sessions.get(sessionId);
   if (!s) return;
-  if (!s.producer && s.listeners.size === 0) {
+  if (!s.handset && s.webs.size === 0) {
     sessions.delete(sessionId);
+    console.log(`[cleanup] removed empty session ${sessionId}`);
   }
 }
 
-function broadcastTextToListeners(sessionId, message) {
-  const s = sessions.get(sessionId);
-  if (!s) return;
+function sendJson(ws, obj) {
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(obj));
+  }
+}
 
-  for (const ws of s.listeners) {
+function broadcastJson(peers, obj) {
+  const text = JSON.stringify(obj);
+  for (const ws of peers) {
     if (ws.readyState === WebSocket.OPEN) {
-      try {
-        ws.send(message);
-      } catch (e) {
-        log(`[${sessionId}] send text to listener failed:`, e.message);
-      }
+      ws.send(text);
     }
   }
 }
 
-function broadcastBinaryToListeners(sessionId, data) {
-  const s = sessions.get(sessionId);
-  if (!s) return;
+const server = http.createServer((req, res) => {
+  const parsed = url.parse(req.url);
+  let pathname = parsed.pathname || '/';
+  if (pathname === '/' || pathname === '/index.htm') pathname = '/index.html';
 
-  let sent = 0;
-  for (const ws of s.listeners) {
-    if (ws.readyState === WebSocket.OPEN) {
-      try {
-        ws.send(data, { binary: true });
-        sent++;
-      } catch (e) {
-        log(`[${sessionId}] send binary to listener failed:`, e.message);
-      }
-    }
-  }
-  return sent;
-}
-
-wss.on('connection', (ws, req) => {
-  let url;
-  try {
-    url = new URL(req.url, `http://${req.headers.host}`);
-  } catch (e) {
-    ws.close(1008, 'Bad URL');
+  if (pathname === '/index.html') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    fs.createReadStream(INDEX_FILE).pipe(res);
     return;
   }
 
-  const pathname = url.pathname;
-  const sessionId = (url.searchParams.get('session') || 'default').trim() || 'default';
-  const remoteIp =
-    req.headers['x-forwarded-for'] ||
-    req.socket.remoteAddress ||
-    'unknown';
+  if (pathname === '/healthz') {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ ok: true, sessions: sessions.size }));
+    return;
+  }
 
+  res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+  res.end('Not found');
+});
+
+const wss = new WebSocket.Server({
+  noServer: true,
+  perMessageDeflate: false,
+  maxPayload: 1024 * 1024,
+});
+
+server.on('upgrade', (req, socket, head) => {
+  const parsed = url.parse(req.url, true);
+  if (parsed.pathname !== '/ws') {
+    socket.destroy();
+    return;
+  }
+
+  wss.handleUpgrade(req, socket, head, (ws) => {
+    wss.emit('connection', ws, req);
+  });
+});
+
+wss.on('connection', (ws, req) => {
+  const parsed = url.parse(req.url, true);
+  const querySession = String(parsed.query.session || '').trim();
+
+  ws.role = null;
+  ws.sessionId = querySession || null;
   ws.isAlive = true;
-  ws.role = 'unknown';
-  ws.sessionId = sessionId;
 
   ws.on('pong', () => {
     ws.isAlive = true;
   });
 
-  if (pathname === '/out') {
-    const session = getSession(sessionId);
+  ws.on('message', (data, isBinary) => {
+    if (isBinary) {
+      if (!ws.role || !ws.sessionId) return;
+      const session = getSession(ws.sessionId);
 
-    if (session.producer && session.producer !== ws) {
-      try {
-        session.producer.close(1012, 'Replaced by new producer');
-      } catch (_) {}
-    }
-
-    session.producer = ws;
-    ws.role = 'producer';
-
-    log(`[${sessionId}] producer connected from ${remoteIp}`);
-
-    try {
-      ws.send(JSON.stringify({
-        type: 'welcome',
-        role: 'producer',
-        session: sessionId,
-      }));
-    } catch (_) {}
-
-    broadcastTextToListeners(sessionId, JSON.stringify({
-      type: 'producer_status',
-      online: true,
-      session: sessionId,
-    }));
-
-    ws.on('message', (data, isBinary) => {
-      if (isBinary) {
-        const count = broadcastBinaryToListeners(sessionId, data);
-        return;
-      }
-
-      const text = data.toString();
-      if (text === 'PING') {
-        try {
-          ws.send('PONG');
-        } catch (_) {}
-        return;
-      }
-
-      broadcastTextToListeners(sessionId, JSON.stringify({
-        type: 'producer_text',
-        session: sessionId,
-        text,
-      }));
-    });
-
-    ws.on('close', (code, reason) => {
-      const s = sessions.get(sessionId);
-      if (s && s.producer === ws) {
-        s.producer = null;
-      }
-
-      log(`[${sessionId}] producer disconnected code=${code} reason=${reason || ''}`);
-
-      broadcastTextToListeners(sessionId, JSON.stringify({
-        type: 'producer_status',
-        online: false,
-        session: sessionId,
-      }));
-
-      cleanupSessionIfEmpty(sessionId);
-    });
-
-    ws.on('error', (err) => {
-      log(`[${sessionId}] producer error:`, err.message);
-    });
-
-    return;
-  }
-
-  if (pathname === '/listen') {
-    const session = getSession(sessionId);
-    session.listeners.add(ws);
-    ws.role = 'listener';
-
-    log(`[${sessionId}] listener connected from ${remoteIp} total=${session.listeners.size}`);
-
-    try {
-      ws.send(JSON.stringify({
-        type: 'welcome',
-        role: 'listener',
-        session: sessionId,
-        producerOnline: !!session.producer,
-        listeners: session.listeners.size,
-      }));
-    } catch (_) {}
-
-    ws.on('message', (data, isBinary) => {
-      if (!isBinary) {
-        const text = data.toString();
-        if (text === 'PING') {
-          try {
-            ws.send('PONG');
-          } catch (_) {}
+      if (ws.role === 'handset') {
+        for (const peer of session.webs) {
+          if (peer.readyState === WebSocket.OPEN) peer.send(data, { binary: true });
+        }
+      } else if (ws.role === 'web') {
+        if (session.handset && session.handset.readyState === WebSocket.OPEN) {
+          session.handset.send(data, { binary: true });
         }
       }
-    });
-
-    ws.on('close', (code, reason) => {
-      const s = sessions.get(sessionId);
-      if (s) {
-        s.listeners.delete(ws);
-      }
-
-      log(
-        `[${sessionId}] listener disconnected code=${code} reason=${reason || ''} total=${s ? s.listeners.size : 0}`
-      );
-
-      cleanupSessionIfEmpty(sessionId);
-    });
-
-    ws.on('error', (err) => {
-      log(`[${sessionId}] listener error:`, err.message);
-    });
-
-    return;
-  }
-
-  ws.close(1008, 'Unsupported path');
-});
-
-const heartbeat = setInterval(() => {
-  for (const client of wss.clients) {
-    if (client.isAlive === false) {
-      try {
-        client.terminate();
-      } catch (_) {}
-      continue;
+      return;
     }
 
+    let msg;
+    try {
+      msg = JSON.parse(data.toString('utf8'));
+    } catch (e) {
+      sendJson(ws, { type: 'error', message: 'invalid json' });
+      return;
+    }
+
+    if (msg.type === 'hello') {
+      const role = msg.role === 'handset' ? 'handset' : 'web';
+      const sessionId = String(msg.session || ws.sessionId || '').trim();
+      if (!sessionId) {
+        sendJson(ws, { type: 'error', message: 'missing session' });
+        return;
+      }
+
+      ws.role = role;
+      ws.sessionId = sessionId;
+      const session = getSession(sessionId);
+
+      if (role === 'handset') {
+        if (session.handset && session.handset !== ws) {
+          try { session.handset.close(4000, 'replaced by new handset'); } catch (_) {}
+        }
+        session.handset = ws;
+        session.meta.sampleRate = Number(msg.sampleRate || session.meta.sampleRate || 8000);
+        session.meta.channels = Number(msg.channels || session.meta.channels || 1);
+        session.meta.bits = Number(msg.bits || session.meta.bits || 16);
+        session.meta.format = String(msg.format || session.meta.format || 'pcm_s16le');
+      } else {
+        session.webs.add(ws);
+      }
+
+      sendJson(ws, {
+        type: 'hello_ack',
+        role,
+        session: sessionId,
+        sampleRate: session.meta.sampleRate,
+        channels: session.meta.channels,
+        bits: session.meta.bits,
+        format: session.meta.format,
+      });
+
+      if (session.lastState) sendJson(ws, session.lastState);
+      if (role === 'web' && session.handset) {
+        sendJson(ws, { type: 'peer', peer: 'handset', connected: true, session: sessionId });
+      }
+      if (role === 'handset' && session.webs.size > 0) {
+        broadcastJson(session.webs, { type: 'peer', peer: 'handset', connected: true, session: sessionId });
+      }
+
+      console.log(`[hello] role=${role} session=${sessionId}`);
+      return;
+    }
+
+    if (!ws.sessionId) return;
+    const session = getSession(ws.sessionId);
+
+    if (msg.type === 'ping') {
+      sendJson(ws, { type: 'pong', session: ws.sessionId, ts: Date.now() });
+      return;
+    }
+
+    if (msg.type === 'pong') return;
+
+    if (msg.type === 'state') {
+      session.lastState = msg;
+      const peers = [];
+      if (session.handset && session.handset !== ws) peers.push(session.handset);
+      for (const peer of session.webs) if (peer !== ws) peers.push(peer);
+      broadcastJson(peers, msg);
+      return;
+    }
+  });
+
+  ws.on('close', () => {
+    const sessionId = ws.sessionId;
+    if (!sessionId) return;
+    const session = getSession(sessionId);
+
+    if (ws.role === 'handset' && session.handset === ws) {
+      session.handset = null;
+      broadcastJson(session.webs, { type: 'peer', peer: 'handset', connected: false, session: sessionId });
+    }
+
+    if (ws.role === 'web') {
+      session.webs.delete(ws);
+    }
+
+    cleanupSession(sessionId);
+  });
+
+  ws.on('error', (err) => {
+    console.error('[ws error]', err.message);
+  });
+});
+
+setInterval(() => {
+  for (const client of wss.clients) {
+    if (client.isAlive === false) {
+      client.terminate();
+      continue;
+    }
     client.isAlive = false;
     try {
       client.ping();
@@ -326,14 +231,7 @@ const heartbeat = setInterval(() => {
   }
 }, 15000);
 
-wss.on('close', () => {
-  clearInterval(heartbeat);
-});
-
-httpServer.listen(PORT, HOST, () => {
-  log(`HTTP/WebSocket server running at http://${HOST}:${PORT}`);
-  log(`Open on LAN: http://<IP_MAY_TINH>:${PORT}`);
-  log(`Health check: http://127.0.0.1:${PORT}/health`);
-  log(`Producer path : ws://<IP_MAY_TINH>:${PORT}/out?session=default`);
-  log(`Listener path : ws://<IP_MAY_TINH>:${PORT}/listen?session=default`);
+server.listen(PORT, HOST, () => {
+  console.log(`HTTP/WebSocket server listening on http://${HOST}:${PORT}/index.html`);
+  console.log(`WebSocket endpoint: ws://<LAN-IP>:${PORT}/ws?session=<session-id>`);
 });

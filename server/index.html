@@ -3,312 +3,268 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>LAN Call Listener</title>
+  <title>Pha 2 - Web nói nghe 2 chiều</title>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 16px;
-      background: #f6f7fb;
-      color: #111;
-    }
-    .box {
-      background: #fff;
-      border-radius: 12px;
-      padding: 16px;
-      box-shadow: 0 2px 10px rgba(0,0,0,.08);
-      max-width: 760px;
-      margin: 0 auto;
-    }
-    h1 {
-      margin-top: 0;
-      font-size: 22px;
-    }
-    .row {
-      margin-bottom: 12px;
-    }
-    label {
-      display: block;
-      margin-bottom: 6px;
-      font-weight: 600;
-    }
-    input, button, select {
-      width: 100%;
-      box-sizing: border-box;
-      padding: 10px 12px;
-      border-radius: 8px;
-      border: 1px solid #ccc;
-      font-size: 16px;
-    }
-    button {
-      cursor: pointer;
-      font-weight: 700;
-    }
-    .btns {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-    }
-    .status {
-      padding: 10px 12px;
-      border-radius: 8px;
-      font-weight: 700;
-      margin-top: 10px;
-    }
-    .ok { background: #e8fff0; color: #0a7a34; }
-    .bad { background: #fff1f1; color: #c62828; }
-    .warn { background: #fff9e8; color: #8a6500; }
-    .mono {
-      font-family: Consolas, monospace;
-      word-break: break-all;
-    }
-    #log {
-      height: 220px;
-      overflow: auto;
-      background: #0e1116;
-      color: #d7e0ea;
-      border-radius: 10px;
-      padding: 12px;
-      white-space: pre-wrap;
-      font-family: Consolas, monospace;
-      font-size: 13px;
-    }
-    .small {
-      font-size: 13px;
-      color: #555;
-    }
+    body { font-family: Arial, sans-serif; margin: 16px; line-height: 1.4; }
+    .row { margin-bottom: 10px; }
+    input, select, button { font-size: 16px; padding: 8px; }
+    input, select { width: 100%; box-sizing: border-box; }
+    button { margin-right: 6px; }
+    .grid { display: grid; grid-template-columns: 1fr; gap: 10px; max-width: 760px; }
+    .status { padding: 10px; background: #f3f3f3; border-radius: 8px; white-space: pre-wrap; }
+    textarea { width: 100%; height: 220px; box-sizing: border-box; font-family: monospace; }
+    .hint { color: #444; font-size: 14px; }
   </style>
 </head>
 <body>
-  <div class="box">
-    <h1>Nghe audio từ dt1 qua Wi-Fi</h1>
-
+  <h2>Web bridge 2 chiều</h2>
+  <div class="grid">
     <div class="row">
-      <label>Session</label>
-      <input id="sessionId" value="default" />
+      <label>Session ID</label>
+      <input id="sessionId" value="call-test" />
     </div>
-
     <div class="row">
-      <label>Sample rate PCM từ BCR</label>
-      <select id="sampleRate">
-        <option value="8000">8000 Hz</option>
-        <option value="16000" selected>16000 Hz</option>
-        <option value="44100">44100 Hz</option>
-        <option value="48000">48000 Hz</option>
+      <label>WS URL</label>
+      <input id="wsUrl" value="ws://192.168.1.100:8081/ws" />
+    </div>
+    <div class="row">
+      <label>Playback sample rate</label>
+      <select id="playRate">
+        <option value="8000" selected>8000</option>
+        <option value="16000">16000</option>
+        <option value="44100">44100</option>
+        <option value="48000">48000</option>
       </select>
-      <div class="small">
-        Nếu nghe nhanh/chậm hoặc méo tiếng thì đổi sample rate.
-      </div>
     </div>
-
     <div class="row">
-      <label>URL nghe</label>
-      <input id="listenUrl" class="mono" readonly />
+      <button id="btnConnect">Kết nối</button>
+      <button id="btnDisconnect">Ngắt</button>
+      <button id="btnMic">Bật mic web</button>
+      <button id="btnMuteMic">Tắt mic web</button>
     </div>
-
-    <div class="row">
-      <label>URL BCR bên dt1 phải trỏ tới</label>
-      <input id="producerUrl" class="mono" readonly />
+    <div class="status" id="status">Chưa kết nối</div>
+    <div class="hint">
+      Bên dt1 đặt URL realtime trong BCR là: <b>ws://IP-MAY-TINH:8081/ws?session=&lt;session-id&gt;</b><br>
+      Web và dt1 phải dùng cùng Session ID.
     </div>
-
-    <div class="btns">
-      <button id="connectBtn">Kết nối nghe</button>
-      <button id="disconnectBtn">Ngắt kết nối</button>
-    </div>
-
-    <div id="status" class="status warn">Chưa kết nối</div>
-
-    <div class="row" style="margin-top: 14px;">
-      <label>Nhật ký</label>
-      <div id="log"></div>
-    </div>
+    <textarea id="log" readonly></textarea>
   </div>
 
-  <script>
-    const sessionInput = document.getElementById('sessionId');
-    const sampleRateSelect = document.getElementById('sampleRate');
-    const listenUrlInput = document.getElementById('listenUrl');
-    const producerUrlInput = document.getElementById('producerUrl');
-    const connectBtn = document.getElementById('connectBtn');
-    const disconnectBtn = document.getElementById('disconnectBtn');
-    const statusEl = document.getElementById('status');
-    const logEl = document.getElementById('log');
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const logEl = $('log');
+  const statusEl = $('status');
+  const sessionEl = $('sessionId');
+  const wsUrlEl = $('wsUrl');
+  const playRateEl = $('playRate');
 
-    const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
+  let ws = null;
+  let audioCtx = null;
+  let nextPlayTime = 0;
+  let micStream = null;
+  let micSource = null;
+  let micProcessor = null;
+  let sendMicEnabled = false;
 
-    let ws = null;
-    let audioCtx = null;
-    let gainNode = null;
-    let nextPlayTime = 0;
-    let keepAliveTimer = null;
+  function log(msg) {
+    const line = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    logEl.value += line + "\n";
+    logEl.scrollTop = logEl.scrollHeight;
+    console.log(msg);
+  }
 
-    function log(msg) {
-      const line = `[${new Date().toLocaleTimeString()}] ${msg}`;
-      logEl.textContent += line + '\n';
-      logEl.scrollTop = logEl.scrollHeight;
-      console.log(line);
+  function setStatus(text) {
+    statusEl.textContent = text;
+  }
+
+  function currentWsUrl() {
+    const base = wsUrlEl.value.trim().replace(/\/$/, '');
+    const session = encodeURIComponent(sessionEl.value.trim());
+    return `${base}?session=${session}`;
+  }
+
+  function ensureAudio() {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      nextPlayTime = audioCtx.currentTime;
     }
+    return audioCtx;
+  }
 
-    function setStatus(text, type) {
-      statusEl.textContent = text;
-      statusEl.className = `status ${type}`;
+  function pcm16ToFloat32(int16) {
+    const out = new Float32Array(int16.length);
+    for (let i = 0; i < int16.length; i++) {
+      out[i] = Math.max(-1, Math.min(1, int16[i] / 32768));
     }
+    return out;
+  }
 
-    function getSession() {
-      return (sessionInput.value || 'default').trim() || 'default';
-    }
+  function playPcm16(arrayBuffer) {
+    const ctx = ensureAudio();
+    const input = new Int16Array(arrayBuffer);
+    const floatData = pcm16ToFloat32(input);
+    const sampleRate = Number(playRateEl.value || 8000);
+    const audioBuffer = ctx.createBuffer(1, floatData.length, sampleRate);
+    audioBuffer.getChannelData(0).set(floatData);
 
-    function buildListenUrl() {
-      return `${wsProto}://${location.host}/listen?session=${encodeURIComponent(getSession())}`;
-    }
+    const source = ctx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(ctx.destination);
 
-    function buildProducerUrl() {
-      return `${wsProto}://${location.host}/out?session=${encodeURIComponent(getSession())}`;
-    }
+    const now = ctx.currentTime;
+    if (nextPlayTime < now) nextPlayTime = now + 0.02;
+    source.start(nextPlayTime);
+    nextPlayTime += audioBuffer.duration;
+  }
 
-    function refreshUrls() {
-      listenUrlInput.value = buildListenUrl();
-      producerUrlInput.value = buildProducerUrl();
-    }
-
-    async function ensureAudio() {
-      if (!audioCtx) {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        gainNode = audioCtx.createGain();
-        gainNode.gain.value = 1.0;
-        gainNode.connect(audioCtx.destination);
-        nextPlayTime = 0;
+  function downsampleToInt16(float32Samples, inputRate, targetRate) {
+    if (targetRate >= inputRate) {
+      const out = new Int16Array(float32Samples.length);
+      for (let i = 0; i < float32Samples.length; i++) {
+        const s = Math.max(-1, Math.min(1, float32Samples[i]));
+        out[i] = s < 0 ? s * 32768 : s * 32767;
       }
-
-      if (audioCtx.state !== 'running') {
-        await audioCtx.resume();
-      }
+      return out;
     }
 
-    function playPcm16Mono(arrayBuffer) {
-      if (!audioCtx) return;
+    const ratio = inputRate / targetRate;
+    const newLength = Math.round(float32Samples.length / ratio);
+    const result = new Int16Array(newLength);
+    let offsetResult = 0;
+    let offsetBuffer = 0;
 
-      const inputRate = parseInt(sampleRateSelect.value, 10) || 16000;
-      const dataView = new DataView(arrayBuffer);
-      const sampleCount = Math.floor(arrayBuffer.byteLength / 2);
-
-      if (sampleCount <= 0) return;
-
-      const audioBuffer = audioCtx.createBuffer(1, sampleCount, inputRate);
-      const channel = audioBuffer.getChannelData(0);
-
-      for (let i = 0; i < sampleCount; i++) {
-        const s = dataView.getInt16(i * 2, true);
-        channel[i] = s / 32768;
+    while (offsetResult < result.length) {
+      const nextOffsetBuffer = Math.round((offsetResult + 1) * ratio);
+      let accum = 0;
+      let count = 0;
+      for (let i = offsetBuffer; i < nextOffsetBuffer && i < float32Samples.length; i++) {
+        accum += float32Samples[i];
+        count++;
       }
+      const sample = count ? accum / count : 0;
+      const s = Math.max(-1, Math.min(1, sample));
+      result[offsetResult] = s < 0 ? s * 32768 : s * 32767;
+      offsetResult++;
+      offsetBuffer = nextOffsetBuffer;
+    }
 
-      const source = audioCtx.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(gainNode);
+    return result;
+  }
 
-      const now = audioCtx.currentTime;
-      if (nextPlayTime < now + 0.05) {
-        nextPlayTime = now + 0.05;
+  async function enableMic() {
+    ensureAudio();
+    if (sendMicEnabled) return;
+
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        channelCount: 1,
       }
+    });
 
-      source.start(nextPlayTime);
-      nextPlayTime += audioBuffer.duration;
+    const ctx = ensureAudio();
+    await ctx.resume();
 
-      source.onended = () => {
+    micSource = ctx.createMediaStreamSource(micStream);
+    micProcessor = ctx.createScriptProcessor(2048, 1, 1);
+
+    micProcessor.onaudioprocess = (event) => {
+      if (!sendMicEnabled || !ws || ws.readyState !== WebSocket.OPEN) return;
+      const input = event.inputBuffer.getChannelData(0);
+      const pcm = downsampleToInt16(input, ctx.sampleRate, 8000);
+      ws.send(pcm.buffer);
+    };
+
+    micSource.connect(micProcessor);
+    micProcessor.connect(ctx.destination);
+    sendMicEnabled = true;
+    log('Mic web đã bật, đang gửi PCM16 8k mono');
+  }
+
+  function disableMic() {
+    sendMicEnabled = false;
+    if (micProcessor) {
+      try { micProcessor.disconnect(); } catch (_) {}
+      micProcessor.onaudioprocess = null;
+      micProcessor = null;
+    }
+    if (micSource) {
+      try { micSource.disconnect(); } catch (_) {}
+      micSource = null;
+    }
+    if (micStream) {
+      for (const track of micStream.getTracks()) track.stop();
+      micStream = null;
+    }
+    log('Mic web đã tắt');
+  }
+
+  function connect() {
+    if (ws && ws.readyState === WebSocket.OPEN) return;
+    const url = currentWsUrl();
+    ws = new WebSocket(url);
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = () => {
+      setStatus('Đã kết nối');
+      log(`WS open: ${url}`);
+      ws.send(JSON.stringify({
+        type: 'hello',
+        role: 'web',
+        session: sessionEl.value.trim(),
+      }));
+    };
+
+    ws.onmessage = (event) => {
+      if (typeof event.data === 'string') {
         try {
-          source.disconnect();
-        } catch (_) {}
-      };
-    }
-
-    async function connect() {
-      try {
-        await ensureAudio();
-      } catch (e) {
-        setStatus('Không bật được audio trên trình duyệt', 'bad');
-        log(`Lỗi audio: ${e.message}`);
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'ping') {
+            ws.send(JSON.stringify({ type: 'pong', session: sessionEl.value.trim(), ts: Date.now() }));
+          }
+          log(`CTRL ${event.data}`);
+        } catch (_) {
+          log(`TEXT ${event.data}`);
+        }
         return;
       }
+      playPcm16(event.data);
+    };
 
-      disconnect(false);
-      refreshUrls();
+    ws.onclose = (ev) => {
+      setStatus(`Đã ngắt: ${ev.code} ${ev.reason || ''}`);
+      log(`WS close code=${ev.code} reason=${ev.reason || ''}`);
+    };
 
-      ws = new WebSocket(buildListenUrl());
-      ws.binaryType = 'arraybuffer';
+    ws.onerror = () => {
+      setStatus('Lỗi WebSocket');
+      log('WS error');
+    };
+  }
 
-      ws.onopen = () => {
-        setStatus('Đã kết nối listener', 'ok');
-        log(`Đã kết nối: ${buildListenUrl()}`);
-        log(`BCR bên dt1 phải nối tới: ${buildProducerUrl()}`);
-
-        keepAliveTimer = setInterval(() => {
-          try {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-              ws.send('PING');
-            }
-          } catch (_) {}
-        }, 10000);
-      };
-
-      ws.onmessage = async (event) => {
-        if (typeof event.data === 'string') {
-          log(`TEXT: ${event.data}`);
-          return;
-        }
-
-        if (event.data instanceof ArrayBuffer) {
-          playPcm16Mono(event.data);
-          return;
-        }
-
-        if (event.data instanceof Blob) {
-          const buf = await event.data.arrayBuffer();
-          playPcm16Mono(buf);
-          return;
-        }
-      };
-
-      ws.onclose = (e) => {
-        setStatus(`Đã ngắt kết nối (${e.code})`, 'warn');
-        log(`Socket đóng. code=${e.code} reason=${e.reason || ''}`);
-        if (keepAliveTimer) {
-          clearInterval(keepAliveTimer);
-          keepAliveTimer = null;
-        }
-      };
-
-      ws.onerror = () => {
-        setStatus('Lỗi WebSocket', 'bad');
-        log('WebSocket lỗi. Kiểm tra IP LAN, firewall, session, và server.');
-      };
+  function disconnect() {
+    disableMic();
+    if (ws) {
+      try { ws.close(1000, 'manual disconnect'); } catch (_) {}
+      ws = null;
     }
+    setStatus('Đã ngắt');
+  }
 
-    function disconnect(showLog = true) {
-      if (keepAliveTimer) {
-        clearInterval(keepAliveTimer);
-        keepAliveTimer = null;
-      }
-
-      if (ws) {
-        try {
-          ws.close();
-        } catch (_) {}
-        ws = null;
-      }
-
-      nextPlayTime = 0;
-
-      if (showLog) {
-        setStatus('Đã ngắt kết nối', 'warn');
-        log('Đã ngắt kết nối thủ công.');
-      }
+  $('btnConnect').onclick = connect;
+  $('btnDisconnect').onclick = disconnect;
+  $('btnMic').onclick = async () => {
+    try {
+      await enableMic();
+    } catch (e) {
+      log(`Không bật được mic: ${e.message}`);
     }
-
-    sessionInput.addEventListener('input', refreshUrls);
-    connectBtn.addEventListener('click', connect);
-    disconnectBtn.addEventListener('click', () => disconnect(true));
-
-    refreshUrls();
-    log(`Mở trang bằng IP LAN, ví dụ: http://192.168.1.100:8081`);
-  </script>
+  };
+  $('btnMuteMic').onclick = disableMic;
+})();
+</script>
 </body>
 </html>
