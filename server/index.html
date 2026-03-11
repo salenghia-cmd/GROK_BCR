@@ -2,260 +2,313 @@
 <html lang="vi">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Pha 1 - Web nghe dt2 qua dt1</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LAN Call Listener</title>
   <style>
     body {
       font-family: Arial, sans-serif;
-      max-width: 900px;
-      margin: 20px auto;
-      padding: 0 16px;
-      line-height: 1.45;
+      margin: 16px;
+      background: #f6f7fb;
+      color: #111;
     }
-    .row { margin-bottom: 12px; }
-    label { display: inline-block; min-width: 120px; }
-    input {
-      width: 100%;
-      max-width: 560px;
-      padding: 8px;
-      box-sizing: border-box;
+    .box {
+      background: #fff;
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.08);
+      max-width: 760px;
+      margin: 0 auto;
     }
-    button {
-      padding: 8px 14px;
-      margin-right: 8px;
-      cursor: pointer;
+    h1 {
+      margin-top: 0;
+      font-size: 22px;
     }
-    #log {
-      background: #111;
-      color: #0f0;
-      padding: 12px;
-      min-height: 220px;
-      white-space: pre-wrap;
-      overflow: auto;
-      border-radius: 6px;
-    }
-    .status {
-      font-weight: bold;
+    .row {
       margin-bottom: 12px;
     }
-    .card {
-      border: 1px solid #ddd;
+    label {
+      display: block;
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+    input, button, select {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 10px 12px;
       border-radius: 8px;
-      padding: 14px;
-      margin-bottom: 14px;
+      border: 1px solid #ccc;
+      font-size: 16px;
+    }
+    button {
+      cursor: pointer;
+      font-weight: 700;
+    }
+    .btns {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .status {
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-weight: 700;
+      margin-top: 10px;
+    }
+    .ok { background: #e8fff0; color: #0a7a34; }
+    .bad { background: #fff1f1; color: #c62828; }
+    .warn { background: #fff9e8; color: #8a6500; }
+    .mono {
+      font-family: Consolas, monospace;
+      word-break: break-all;
+    }
+    #log {
+      height: 220px;
+      overflow: auto;
+      background: #0e1116;
+      color: #d7e0ea;
+      border-radius: 10px;
+      padding: 12px;
+      white-space: pre-wrap;
+      font-family: Consolas, monospace;
+      font-size: 13px;
+    }
+    .small {
+      font-size: 13px;
+      color: #555;
     }
   </style>
 </head>
 <body>
-  <h2>Pha 1 - Web nghe dt2 qua dt1 root</h2>
+  <div class="box">
+    <h1>Nghe audio từ dt1 qua Wi-Fi</h1>
 
-  <div class="card">
     <div class="row">
       <label>Session</label>
       <input id="sessionId" value="default" />
     </div>
 
     <div class="row">
-      <label>WS listen URL</label>
-      <input id="listenUrl" />
+      <label>Sample rate PCM từ BCR</label>
+      <select id="sampleRate">
+        <option value="8000">8000 Hz</option>
+        <option value="16000" selected>16000 Hz</option>
+        <option value="44100">44100 Hz</option>
+        <option value="48000">48000 Hz</option>
+      </select>
+      <div class="small">
+        Nếu nghe nhanh/chậm hoặc méo tiếng thì đổi sample rate.
+      </div>
     </div>
 
     <div class="row">
-      <button id="btnConnect">Connect</button>
-      <button id="btnDisconnect">Disconnect</button>
-      <button id="btnResumeAudio">Bật audio</button>
+      <label>URL nghe</label>
+      <input id="listenUrl" class="mono" readonly />
     </div>
 
-    <div class="status">Trạng thái: <span id="status">idle</span></div>
-    <div>Header audio: <span id="meta">chưa có</span></div>
-  </div>
+    <div class="row">
+      <label>URL BCR bên dt1 phải trỏ tới</label>
+      <input id="producerUrl" class="mono" readonly />
+    </div>
 
-  <div class="card">
-    <h3>Log</h3>
-    <div id="log"></div>
+    <div class="btns">
+      <button id="connectBtn">Kết nối nghe</button>
+      <button id="disconnectBtn">Ngắt kết nối</button>
+    </div>
+
+    <div id="status" class="status warn">Chưa kết nối</div>
+
+    <div class="row" style="margin-top: 14px;">
+      <label>Nhật ký</label>
+      <div id="log"></div>
+    </div>
   </div>
 
   <script>
-    const statusEl = document.getElementById('status');
-    const metaEl = document.getElementById('meta');
-    const logEl = document.getElementById('log');
     const sessionInput = document.getElementById('sessionId');
+    const sampleRateSelect = document.getElementById('sampleRate');
     const listenUrlInput = document.getElementById('listenUrl');
+    const producerUrlInput = document.getElementById('producerUrl');
+    const connectBtn = document.getElementById('connectBtn');
+    const disconnectBtn = document.getElementById('disconnectBtn');
+    const statusEl = document.getElementById('status');
+    const logEl = document.getElementById('log');
 
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    listenUrlInput.value = `${proto}://${location.host}/listen?session=default`;
+    const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
 
     let ws = null;
     let audioCtx = null;
+    let gainNode = null;
     let nextPlayTime = 0;
-    let audioMeta = null;
+    let keepAliveTimer = null;
 
-    function log(...args) {
-      const line = args.map(v => typeof v === 'string' ? v : JSON.stringify(v)).join(' ');
+    function log(msg) {
+      const line = `[${new Date().toLocaleTimeString()}] ${msg}`;
       logEl.textContent += line + '\n';
       logEl.scrollTop = logEl.scrollHeight;
-      console.log(...args);
+      console.log(line);
     }
 
-    function setStatus(text) {
+    function setStatus(text, type) {
       statusEl.textContent = text;
+      statusEl.className = `status ${type}`;
     }
 
-    function refreshListenUrl() {
-      const s = encodeURIComponent(sessionInput.value || 'default');
-      listenUrlInput.value = `${proto}://${location.host}/listen?session=${s}`;
+    function getSession() {
+      return (sessionInput.value || 'default').trim() || 'default';
     }
 
-    sessionInput.addEventListener('input', refreshListenUrl);
+    function buildListenUrl() {
+      return `${wsProto}://${location.host}/listen?session=${encodeURIComponent(getSession())}`;
+    }
+
+    function buildProducerUrl() {
+      return `${wsProto}://${location.host}/out?session=${encodeURIComponent(getSession())}`;
+    }
+
+    function refreshUrls() {
+      listenUrlInput.value = buildListenUrl();
+      producerUrlInput.value = buildProducerUrl();
+    }
 
     async function ensureAudio() {
       if (!audioCtx) {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        gainNode = audioCtx.createGain();
+        gainNode.gain.value = 1.0;
+        gainNode.connect(audioCtx.destination);
+        nextPlayTime = 0;
       }
+
       if (audioCtx.state !== 'running') {
         await audioCtx.resume();
       }
     }
 
-    function parseHeader(text) {
-      try {
-        const obj = JSON.parse(text);
+    function playPcm16Mono(arrayBuffer) {
+      if (!audioCtx) return;
 
-        if (
-          typeof obj.sample_rate === 'number' &&
-          typeof obj.channels === 'number' &&
-          typeof obj.bits === 'number'
-        ) {
-          audioMeta = {
-            sampleRate: obj.sample_rate,
-            channels: obj.channels,
-            bits: obj.bits,
-            format: obj.format || 'pcm_s16le'
-          };
-          metaEl.textContent =
-            `sampleRate=${audioMeta.sampleRate}, channels=${audioMeta.channels}, bits=${audioMeta.bits}, format=${audioMeta.format}`;
-          log('Audio header:', audioMeta);
-          return true;
-        }
-      } catch (_) {}
-      return false;
-    }
+      const inputRate = parseInt(sampleRateSelect.value, 10) || 16000;
+      const dataView = new DataView(arrayBuffer);
+      const sampleCount = Math.floor(arrayBuffer.byteLength / 2);
 
-    function playPcmChunk(arrayBuffer) {
-      if (!audioMeta) {
-        log('Chưa có audio header, bỏ qua chunk');
-        return;
+      if (sampleCount <= 0) return;
+
+      const audioBuffer = audioCtx.createBuffer(1, sampleCount, inputRate);
+      const channel = audioBuffer.getChannelData(0);
+
+      for (let i = 0; i < sampleCount; i++) {
+        const s = dataView.getInt16(i * 2, true);
+        channel[i] = s / 32768;
       }
 
-      if (!audioCtx) {
-        log('AudioContext chưa khởi tạo, bấm "Bật audio" trước');
-        return;
-      }
-
-      const channels = audioMeta.channels;
-      const bytesPerSample = 2;
-      const frameCount = arrayBuffer.byteLength / (channels * bytesPerSample);
-
-      if (!frameCount || frameCount < 1) return;
-
-      const audioBuffer = audioCtx.createBuffer(
-        channels,
-        frameCount,
-        audioMeta.sampleRate
-      );
-
-      const view = new DataView(arrayBuffer);
-
-      for (let ch = 0; ch < channels; ch++) {
-        const out = audioBuffer.getChannelData(ch);
-        for (let i = 0; i < frameCount; i++) {
-          const sampleIndex = (i * channels + ch) * 2;
-          const s = view.getInt16(sampleIndex, true);
-          out[i] = Math.max(-1, Math.min(1, s / 32768));
-        }
-      }
-
-      const src = audioCtx.createBufferSource();
-      src.buffer = audioBuffer;
-      src.connect(audioCtx.destination);
+      const source = audioCtx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(gainNode);
 
       const now = audioCtx.currentTime;
-
       if (nextPlayTime < now + 0.05) {
         nextPlayTime = now + 0.05;
       }
 
-      if (nextPlayTime - now > 1.5) {
-        nextPlayTime = now + 0.05;
-      }
-
-      src.start(nextPlayTime);
+      source.start(nextPlayTime);
       nextPlayTime += audioBuffer.duration;
+
+      source.onended = () => {
+        try {
+          source.disconnect();
+        } catch (_) {}
+      };
     }
 
-    async function connectWs() {
-      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
-        log('WS đã tồn tại');
+    async function connect() {
+      try {
+        await ensureAudio();
+      } catch (e) {
+        setStatus('Không bật được audio trên trình duyệt', 'bad');
+        log(`Lỗi audio: ${e.message}`);
         return;
       }
 
-      await ensureAudio();
+      disconnect(false);
+      refreshUrls();
 
-      const url = listenUrlInput.value.trim();
-      ws = new WebSocket(url);
+      ws = new WebSocket(buildListenUrl());
       ws.binaryType = 'arraybuffer';
 
-      setStatus('connecting');
-      log('Connecting:', url);
-
       ws.onopen = () => {
-        setStatus('connected');
-        log('WS connected');
+        setStatus('Đã kết nối listener', 'ok');
+        log(`Đã kết nối: ${buildListenUrl()}`);
+        log(`BCR bên dt1 phải nối tới: ${buildProducerUrl()}`);
+
+        keepAliveTimer = setInterval(() => {
+          try {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.send('PING');
+            }
+          } catch (_) {}
+        }, 10000);
       };
 
       ws.onmessage = async (event) => {
         if (typeof event.data === 'string') {
-          const ok = parseHeader(event.data);
-          if (!ok) log('Text message:', event.data);
+          log(`TEXT: ${event.data}`);
           return;
         }
 
         if (event.data instanceof ArrayBuffer) {
-          playPcmChunk(event.data);
+          playPcm16Mono(event.data);
           return;
         }
 
         if (event.data instanceof Blob) {
-          const ab = await event.data.arrayBuffer();
-          playPcmChunk(ab);
+          const buf = await event.data.arrayBuffer();
+          playPcm16Mono(buf);
+          return;
         }
       };
 
-      ws.onerror = (e) => {
-        setStatus('error');
-        log('WS error', e?.message || '(xem console)');
+      ws.onclose = (e) => {
+        setStatus(`Đã ngắt kết nối (${e.code})`, 'warn');
+        log(`Socket đóng. code=${e.code} reason=${e.reason || ''}`);
+        if (keepAliveTimer) {
+          clearInterval(keepAliveTimer);
+          keepAliveTimer = null;
+        }
       };
 
-      ws.onclose = (e) => {
-        setStatus('closed');
-        log(`WS closed code=${e.code} reason=${e.reason || ''}`);
-        ws = null;
+      ws.onerror = () => {
+        setStatus('Lỗi WebSocket', 'bad');
+        log('WebSocket lỗi. Kiểm tra IP LAN, firewall, session, và server.');
       };
     }
 
-    function disconnectWs() {
+    function disconnect(showLog = true) {
+      if (keepAliveTimer) {
+        clearInterval(keepAliveTimer);
+        keepAliveTimer = null;
+      }
+
       if (ws) {
-        ws.close(1000, 'manual disconnect');
+        try {
+          ws.close();
+        } catch (_) {}
         ws = null;
       }
-      setStatus('idle');
+
+      nextPlayTime = 0;
+
+      if (showLog) {
+        setStatus('Đã ngắt kết nối', 'warn');
+        log('Đã ngắt kết nối thủ công.');
+      }
     }
 
-    document.getElementById('btnConnect').addEventListener('click', connectWs);
-    document.getElementById('btnDisconnect').addEventListener('click', disconnectWs);
-    document.getElementById('btnResumeAudio').addEventListener('click', ensureAudio);
+    sessionInput.addEventListener('input', refreshUrls);
+    connectBtn.addEventListener('click', connect);
+    disconnectBtn.addEventListener('click', () => disconnect(true));
 
-    refreshListenUrl();
+    refreshUrls();
+    log(`Mở trang bằng IP LAN, ví dụ: http://192.168.1.100:8081`);
   </script>
 </body>
 </html>
