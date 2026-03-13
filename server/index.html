@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Web bridge 2 chiều - LAN</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 16px;
+      line-height: 1.45;
+      background: #fafafa;
+      color: #111;
+    }
+
+    h2 {
+      margin-top: 0;
+      margin-bottom: 14px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      max-width: 820px;
+    }
+
+    .row {
+      margin-bottom: 2px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+
+    input, select, button, textarea {
+      font-size: 16px;
+    }
+
+    input, select, textarea {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    button {
+      padding: 10px 14px;
+      border: 1px solid #bbb;
+      border-radius: 8px;
+      background: #fff;
+      cursor: pointer;
+      margin-right: 6px;
+      margin-bottom: 6px;
+    }
+
+    button:hover {
+      background: #f1f1f1;
+    }
+
+    .status {
+      padding: 12px;
+      background: #f3f3f3;
+      border-radius: 8px;
+      white-space: pre-wrap;
+      border: 1px solid #ddd;
+    }
+
+    .hint {
+      color: #444;
+      font-size: 14px;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .warn {
+      color: #b00020;
+      font-weight: bold;
+    }
+
+    .ok {
+      color: #0a7a20;
+      font-weight: bold;
+    }
+
+    textarea {
+      height: 320px;
+      font-family: Consolas, monospace;
+      resize: vertical;
+    }
+
+    .small {
+      font-size: 13px;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <h2>Web bridge 2 chiều - LAN</h2>
+
+  <div class="grid">
+    <div class="row">
+      <label for="sessionId">Session ID</label>
+      <input id="sessionId" value="call-test" />
+    </div>
+
+    <div class="row">
+      <label for="wsUrl">WS URL</label>
+      <input id="wsUrl" value="" />
+      <div class="small">Ví dụ: ws://192.168.1.100:8081/ws</div>
+    </div>
+
+    <div class="row">
+      <label for="playRate">Playback / Mic sample rate</label>
+      <select id="playRate">
+        <option value="8000">8000</option>
+        <option value="16000" selected>16000</option>
+        <option value="44100">44100</option>
+        <option value="48000">48000</option>
+      </select>
+    </div>
+
+    <div class="row">
+      <button id="btnConnect">Kết nối</button>
+      <button id="btnDisconnect">Ngắt</button>
+      <button id="btnMic">Bật mic web</button>
+      <button id="btnMuteMic">Tắt mic web</button>
+      <button id="btnClearLog">Xóa log</button>
+    </div>
+
+    <div class="status" id="status">Chưa kết nối</div>
+
+    <div class="hint">
+      Bên dt1 đặt URL realtime trong BCR là:
+      <b>ws://IP-MAY-TINH:8081/ws?session=&lt;session-id&gt;</b><br>
+      Web và dt1 phải dùng cùng Session ID.<br><br>
+
+      Mở web trong LAN bằng:
+      <b class="ok">http://IP-MAY-TINH:8081/index.html</b><br><br>
+
+      <span class="warn">
+        Lưu ý: nếu mở bằng HTTP thường trên một số điện thoại, trình duyệt có thể chặn mic web.
+        Khi đó vẫn có thể test chiều nghe từ dt2 ra web trước.
+      </span>
+    </div>
+
+    <textarea id="log" readonly></textarea>
+  </div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+
+  const logEl = $('log');
+  const statusEl = $('status');
+  const sessionEl = $('sessionId');
+  const wsUrlEl = $('wsUrl');
+  const playRateEl = $('playRate');
+
+  let ws = null;
+  let audioCtx = null;
+  let nextPlayTime = 0;
+
+  let micStream = null;
+  let micSource = null;
+  let micProcessor = null;
+  let zeroGain = null;
+  let sendMicEnabled = false;
+
+  function log(msg) {
+    const line = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    logEl.value += line + '\n';
+    logEl.scrollTop = logEl.scrollHeight;
+    console.log(msg);
+  }
+
+  function setStatus(text) {
+    statusEl.textContent = text;
+  }
+
+  function getSelectedRate() {
+    const v = Number(playRateEl.value || 16000);
+    return Number.isFinite(v) && v > 0 ? v : 16000;
+  }
+
+  function autoFillWsUrl() {
+    if (wsUrlEl.value.trim()) return;
+    const host = window.location.hostname || '192.168.1.100';
+    const port = window.location.port || '8081';
+    wsUrlEl.value = `ws://${host}:${port}/ws`;
+  }
+
+  function currentWsUrl() {
+    const base = wsUrlEl.value.trim().replace(/\/$/, '');
+    const session = encodeURIComponent(sessionEl.value.trim());
+    return `${base}?session=${session}`;
+  }
+
+  function ensureAudio() {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      nextPlayTime = audioCtx.currentTime;
+    }
+    return audioCtx;
+  }
+
+  function pcm16ToFloat32(int16) {
+    const out = new Float32Array(int16.length);
+    for (let i = 0; i < int16.length; i++) {
+      out[i] = Math.max(-1, Math.min(1, int16[i] / 32768));
+    }
+    return out;
+  }
+
+  function playPcm16(arrayBuffer) {
+    const ctx = ensureAudio();
+    const input = new Int16Array(arrayBuffer);
+    const floatData = pcm16ToFloat32(input);
+    const sampleRate = getSelectedRate();
+
+    const audioBuffer = ctx.createBuffer(1, floatData.length, sampleRate);
+    audioBuffer.getChannelData(0).set(floatData);
+
+    const source = ctx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(ctx.destination);
+
+    const now = ctx.currentTime;
+    if (nextPlayTime < now) nextPlayTime = now + 0.02;
+    source.start(nextPlayTime);
+    nextPlayTime += audioBuffer.duration;
+  }
+
+  function floatToInt16(float32Samples) {
+    const out = new Int16Array(float32Samples.length);
+    for (let i = 0; i < float32Samples.length; i++) {
+      const s = Math.max(-1, Math.min(1, float32Samples[i]));
+      out[i] = s < 0 ? s * 32768 : s * 32767;
+    }
+    return out;
+  }
+
+  function downsampleToInt16(float32Samples, inputRate, targetRate) {
+    if (targetRate >= inputRate) {
+      return floatToInt16(float32Samples);
+    }
+
+    const ratio = inputRate / targetRate;
+    const newLength = Math.round(float32Samples.length / ratio);
+    const result = new Int16Array(newLength);
+
+    let offsetResult = 0;
+    let offsetBuffer = 0;
+
+    while (offsetResult < result.length) {
+      const nextOffsetBuffer = Math.round((offsetResult + 1) * ratio);
+      let accum = 0;
+      let count = 0;
+
+      for (let i = offsetBuffer; i < nextOffsetBuffer && i < float32Samples.length; i++) {
+        accum += float32Samples[i];
+        count++;
+      }
+
+      const sample = count ? accum / count : 0;
+      const s = Math.max(-1, Math.min(1, sample));
+      result[offsetResult] = s < 0 ? s * 32768 : s * 32767;
+
+      offsetResult++;
+      offsetBuffer = nextOffsetBuffer;
+    }
+
+    return result;
+  }
+
+  function legacyGetUserMedia(constraints) {
+    return new Promise((resolve, reject) => {
+      const gum =
+        navigator.getUserMedia ||
+        navigator.webkitGetUserMedia ||
+        navigator.mozGetUserMedia ||
+        navigator.msGetUserMedia;
+
+      if (!gum) {
+        reject(new Error('Trình duyệt không hỗ trợ getUserMedia'));
+        return;
+      }
+
+      gum.call(navigator, constraints, resolve, reject);
+    });
+  }
+
+  async function getMicStream() {
+    const constraints = {
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        channelCount: 1
+      }
+    };
+
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      return navigator.mediaDevices.getUserMedia(constraints);
+    }
+
+    return legacyGetUserMedia(constraints);
+  }
+
+  async function enableMic() {
+    ensureAudio();
+
+    if (sendMicEnabled) {
+      log('Mic web đã bật sẵn');
+      return;
+    }
+
+    const ctx = ensureAudio();
+    await ctx.resume();
+
+    micStream = await getMicStream();
+    micSource = ctx.createMediaStreamSource(micStream);
+    micProcessor = ctx.createScriptProcessor(2048, 1, 1);
+
+    zeroGain = ctx.createGain();
+    zeroGain.gain.value = 0;
+
+    micProcessor.onaudioprocess = (event) => {
+      if (!sendMicEnabled || !ws || ws.readyState !== WebSocket.OPEN) return;
+
+      const input = event.inputBuffer.getChannelData(0);
+      const targetRate = getSelectedRate();
+      const pcm = downsampleToInt16(input, ctx.sampleRate, targetRate);
+      ws.send(pcm.buffer);
+    };
+
+    micSource.connect(micProcessor);
+    micProcessor.connect(zeroGain);
+    zeroGain.connect(ctx.destination);
+
+    sendMicEnabled = true;
+    log(`Mic web đã bật, đang gửi PCM16 mono ${getSelectedRate()} Hz. sampleRate gốc=${ctx.sampleRate}`);
+  }
+
+  function disableMic() {
+    sendMicEnabled = false;
+
+    if (micProcessor) {
+      try { micProcessor.disconnect(); } catch (_) {}
+      micProcessor.onaudioprocess = null;
+      micProcessor = null;
+    }
+
+    if (micSource) {
+      try { micSource.disconnect(); } catch (_) {}
+      micSource = null;
+    }
+
+    if (zeroGain) {
+      try { zeroGain.disconnect(); } catch (_) {}
+      zeroGain = null;
+    }
+
+    if (micStream) {
+      for (const track of micStream.getTracks()) {
+        try { track.stop(); } catch (_) {}
+      }
+      micStream = null;
+    }
+
+    log('Mic web đã tắt');
+  }
+
+  function connect() {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      log('WS đang mở sẵn');
+      return;
+    }
+
+    const url = currentWsUrl();
+    ws = new WebSocket(url);
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = () => {
+      setStatus(`Đã kết nối\n${url}`);
+      log(`WS open: ${url}`);
+
+      ws.send(JSON.stringify({
+        type: 'hello',
+        role: 'web',
+        session: sessionEl.value.trim()
+      }));
+    };
+
+    ws.onmessage = (event) => {
+      if (typeof event.data === 'string') {
+        try {
+          const msg = JSON.parse(event.data);
+
+          if (msg.type === 'ping') {
+            ws.send(JSON.stringify({
+              type: 'pong',
+              session: sessionEl.value.trim(),
+              ts: Date.now()
+            }));
+          }
+
+          if (msg.type === 'peer') {
+            setStatus(
+              `Đã kết nối\nPeer handset: ${msg.connected ? 'connected' : 'disconnected'}\nSession: ${msg.session || sessionEl.value.trim()}`
+            );
+          }
+
+          log(`CTRL ${event.data}`);
+        } catch (_) {
+          log(`TEXT ${event.data}`);
+        }
+        return;
+      }
+
+      playPcm16(event.data);
+    };
+
+    ws.onclose = (ev) => {
+      setStatus(`Đã ngắt: ${ev.code} ${ev.reason || ''}`);
+      log(`WS close code=${ev.code} reason=${ev.reason || ''}`);
+      ws = null;
+    };
+
+    ws.onerror = () => {
+      setStatus('Lỗi WebSocket');
+      log('WS error');
+    };
+  }
+
+  function disconnect() {
+    disableMic();
+
+    if (ws) {
+      try { ws.close(1000, 'manual disconnect'); } catch (_) {}
+      ws = null;
+    }
+
+    setStatus('Đã ngắt');
+    log('Đã ngắt WS');
+  }
+
+  $('btnConnect').onclick = connect;
+  $('btnDisconnect').onclick = disconnect;
+  $('btnClearLog').onclick = () => { logEl.value = ''; };
+
+  $('btnMic').onclick = async () => {
+    try {
+      await enableMic();
+    } catch (e) {
+      log(`Không bật được mic: ${e && e.message ? e.message : String(e)}`);
+    }
+  };
+
+  $('btnMuteMic').onclick = disableMic;
+
+  autoFillWsUrl();
+})();
+</script>
+</body>
+</html>
