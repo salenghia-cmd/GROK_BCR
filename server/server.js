@@ -31,20 +31,32 @@ const tlsOptions = {
 
 const sessions = new Map();
 
+function normalizeMeta(input = {}) {
+  return {
+    sampleRate: Number(input.sampleRate) > 0 ? Number(input.sampleRate) : 16000,
+    channels: Number(input.channels) > 0 ? Number(input.channels) : 1,
+    bits: Number(input.bits) > 0 ? Number(input.bits) : 16,
+    format: String(input.format || 'pcm_s16le'),
+    deviceId: input.deviceId ? String(input.deviceId) : 'android',
+    playbackMode: input.playbackMode ? String(input.playbackMode) : 'local',
+    injectMode: input.injectMode ? String(input.injectMode) : 'noop',
+  };
+}
+
+function createSession(sessionId) {
+  return {
+    handset: null,
+    webs: new Set(),
+    meta: normalizeMeta(),
+    lastState: null,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+}
+
 function getSession(sessionId) {
   if (!sessions.has(sessionId)) {
-    sessions.set(sessionId, {
-      handset: null,
-      webs: new Set(),
-      meta: {
-        sampleRate: 16000,
-        channels: 1,
-        bits: 16,
-        format: 'pcm_s16le',
-      },
-      lastState: null,
-      createdAt: Date.now(),
-    });
+    sessions.set(sessionId, createSession(sessionId));
   }
   return sessions.get(sessionId);
 }
@@ -52,6 +64,7 @@ function getSession(sessionId) {
 function cleanupSession(sessionId) {
   const s = sessions.get(sessionId);
   if (!s) return;
+
   if (!s.handset && s.webs.size === 0) {
     sessions.delete(sessionId);
     console.log(`[cleanup] removed empty session ${sessionId}`);
@@ -73,10 +86,31 @@ function broadcastJson(peers, obj) {
   }
 }
 
+function sessionMetaMessage(sessionId, session) {
+  return {
+    type: 'media_info',
+    session: sessionId,
+    ...session.meta,
+  };
+}
+
+function notifyMediaInfo(sessionId, session, targetWs = null) {
+  const payload = sessionMetaMessage(sessionId, session);
+
+  if (targetWs) {
+    sendJson(targetWs, payload);
+    return;
+  }
+
+  if (session.handset) {
+    sendJson(session.handset, payload);
+  }
+  broadcastJson(session.webs, payload);
+}
+
 function getRedirectHost(req) {
   const hostHeader = req.headers.host || '';
-  const hostOnly = hostHeader.split(':')[0] || 'localhost';
-  return hostOnly;
+  return hostHeader.split(':')[0] || 'localhost';
 }
 
 function handleHttpsRequest(req, res) {
@@ -163,6 +197,7 @@ wss.on('connection', (ws, req) => {
       if (!ws.role || !ws.sessionId) return;
 
       const session = getSession(ws.sessionId);
+      session.updatedAt = Date.now();
 
       if (ws.role === 'handset') {
         for (const peer of session.webs) {
@@ -199,6 +234,7 @@ wss.on('connection', (ws, req) => {
       ws.sessionId = sessionId;
 
       const session = getSession(sessionId);
+      session.updatedAt = Date.now();
 
       if (role === 'handset') {
         if (session.handset && session.handset !== ws) {
@@ -208,10 +244,15 @@ wss.on('connection', (ws, req) => {
         }
 
         session.handset = ws;
-        session.meta.sampleRate = Number(msg.sampleRate || session.meta.sampleRate || 16000);
-        session.meta.channels = Number(msg.channels || session.meta.channels || 1);
-        session.meta.bits = Number(msg.bits || session.meta.bits || 16);
-        session.meta.format = String(msg.format || session.meta.format || 'pcm_s16le');
+        session.meta = normalizeMeta({
+          sampleRate: msg.sampleRate,
+          channels: msg.channels,
+          bits: msg.bits,
+          format: msg.format,
+          deviceId: msg.deviceId,
+          playbackMode: msg.playbackMode,
+          injectMode: msg.injectMode,
+        });
       } else {
         session.webs.add(ws);
       }
@@ -220,11 +261,8 @@ wss.on('connection', (ws, req) => {
         type: 'hello_ack',
         role,
         session: sessionId,
-        sampleRate: session.meta.sampleRate,
-        channels: session.meta.channels,
-        bits: session.meta.bits,
-        format: session.meta.format,
         secure: true,
+        ...session.meta,
       });
 
       if (session.lastState) {
@@ -238,24 +276,29 @@ wss.on('connection', (ws, req) => {
           connected: true,
           session: sessionId,
         });
+        notifyMediaInfo(sessionId, session, ws);
       }
 
-      if (role === 'handset' && session.webs.size > 0) {
+      if (role === 'handset') {
         broadcastJson(session.webs, {
           type: 'peer',
           peer: 'handset',
           connected: true,
           session: sessionId,
         });
+        notifyMediaInfo(sessionId, session);
       }
 
-      console.log(`[hello] role=${role} session=${sessionId}`);
+      console.log(
+        `[hello] role=${role} session=${sessionId} ${session.meta.sampleRate}Hz/${session.meta.channels}ch/${session.meta.bits}bit ${session.meta.format}`
+      );
       return;
     }
 
     if (!ws.sessionId) return;
 
     const session = getSession(ws.sessionId);
+    session.updatedAt = Date.now();
 
     if (msg.type === 'ping') {
       sendJson(ws, { type: 'pong', session: ws.sessionId, ts: Date.now() });
@@ -331,6 +374,6 @@ httpServer.listen(HTTP_PORT, HOST, () => {
 
 httpsServer.listen(HTTPS_PORT, HOST, () => {
   console.log(`HTTPS server listening on https://${HOST}:${HTTPS_PORT}/index.html`);
-  console.log(`WSS endpoint: wss://<IP-LAN>:${HTTPS_PORT}/ws?session=<session-id>`);
-  console.log(`Health: https://<IP-LAN>:${HTTPS_PORT}/healthz`);
+  console.log(`WSS endpoint: wss://<HOST>:${HTTPS_PORT}/ws?session=<id>`);
+  console.log(`Health: https://<HOST>:${HTTPS_PORT}/healthz`);
 });
