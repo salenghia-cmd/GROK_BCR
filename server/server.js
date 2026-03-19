@@ -38,8 +38,8 @@ function normalizeMeta(input = {}) {
     bits: Number(input.bits) > 0 ? Number(input.bits) : 16,
     format: String(input.format || 'pcm_s16le'),
     deviceId: input.deviceId ? String(input.deviceId) : 'android',
-    playbackMode: input.playbackMode ? String(input.playbackMode) : 'follow_call',
-    injectMode: input.injectMode ? String(input.injectMode) : 'speaker_loopback',
+    playbackMode: input.playbackMode ? String(input.playbackMode) : 'earpiece',
+    injectMode: input.injectMode ? String(input.injectMode) : 'vendor_incall',
   };
 }
 

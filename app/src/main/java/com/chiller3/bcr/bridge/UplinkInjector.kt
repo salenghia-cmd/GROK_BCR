@@ -4,7 +4,7 @@ import android.util.Log
 
 class UplinkInjector(
     private val playbackThread: PlaybackThread,
-    private val injectMode: String = "speaker_loopback",
+    private val injectMode: String = "vendor_incall",
 ) {
     companion object {
         private const val TAG = "UplinkInjector"
@@ -56,25 +56,19 @@ class UplinkInjector(
     }
 
     /**
-     * Chưa inject thật vào uplink call.
-     * Tạm fallback sang playback local để không bị câm hoàn toàn.
+     * Với bản custom này, vendor_incall sẽ đẩy PCM vào AudioTrack STREAM_VOICE_CALL
+     * của PlaybackThread và giữ mode/route phía telephony càng nguyên bản càng tốt.
+     * Trên các máy hỗ trợ voice-call mixer path, đây là đường gần nhất để web -> dt2 nghe.
      */
     private class VendorIncallInjector(
         private val playbackThread: PlaybackThread,
     ) : InboundAudioInjector {
-        @Volatile
-        private var warned = false
-
         override fun start() {
-            Log.w(TAG, "VendorIncallInjector chưa implement thật, đang fallback local playback")
+            Log.i(TAG, "VendorIncallInjector started -> call-path playback")
         }
 
         override fun writePcm(bytes: ByteArray) {
             if (bytes.isEmpty()) return
-            if (!warned) {
-                warned = true
-                Log.w(TAG, "vendor_incall chưa inject thật -> fallback local playback")
-            }
             playbackThread.enqueue(bytes)
         }
 

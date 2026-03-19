@@ -128,8 +128,8 @@
         <ListPreference
             app:key="playback_mode"
             app:title="Playback mode"
-            app:summary="Chọn nơi phát âm thanh từ web trên dt1"
-            app:defaultValue="speaker"
+            app:summary="Mặc định ép âm thanh web ra loa trong để tránh phóng loa ngoài"
+            app:defaultValue="earpiece"
             app:dependency="enable_realtime_bridge"
             app:entries="@array/pref_playback_mode_entries"
             app:entryValues="@array/pref_playback_mode_values"
@@ -139,8 +139,8 @@
         <ListPreference
             app:key="inject_mode"
             app:title="Inject mode"
-            app:summary="Chọn cách đưa âm thanh web vào đường thoại"
-            app:defaultValue="speaker_loopback"
+            app:summary="Mặc định dùng đường voice-call để ưu tiên web → dt2 nghe"
+            app:defaultValue="vendor_incall"
             app:dependency="enable_realtime_bridge"
             app:entries="@array/pref_inject_mode_entries"
             app:entryValues="@array/pref_inject_mode_values"

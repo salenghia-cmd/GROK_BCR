@@ -170,11 +170,11 @@ class Preferences(initialContext: Context) {
                 ?.lowercase()
 
             val normalized = when (raw) {
-                null, "", "auto", "speaker_loopback", "follow_call", "call" -> "earpiece"
+                null, "", "auto", "speaker_loopback", "follow_call", "call", "speaker" -> "earpiece"
                 else -> raw
             }
 
-            if (raw != null && raw != normalized) {
+            if (raw != normalized) {
                 prefs.edit { putString(PREF_PLAYBACK_MODE, normalized) }
             }
 
@@ -185,14 +185,26 @@ class Preferences(initialContext: Context) {
         }
 
     var injectMode: String
-        get() = prefs.getString(PREF_INJECT_MODE, "speaker_loopback")
-            ?.trim()
-            ?.lowercase()
-            ?.ifBlank { "speaker_loopback" }
-            ?: "speaker_loopback"
+        get() {
+            val raw = prefs.getString(PREF_INJECT_MODE, null)
+                ?.trim()
+                ?.lowercase()
+
+            val normalized = when (raw) {
+                null, "", "auto", "follow_call", "speaker_loopback", "call" -> "vendor_incall"
+                else -> raw
+            }
+
+            if (raw != normalized) {
+                prefs.edit { putString(PREF_INJECT_MODE, normalized) }
+            }
+
+            return normalized
+        }
         set(value) = prefs.edit {
             putString(PREF_INJECT_MODE, value.trim().lowercase())
         }
+
 
     // ── Helper / Fallback logic cho WebSocket URL ───────────────────────────────
     fun resolvePrimaryWsUrl(): String? {

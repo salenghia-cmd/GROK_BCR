@@ -198,11 +198,22 @@ class PlaybackThread(
         var selectedDevice: AudioDeviceInfo? = null
 
         try {
-            if (audioManager.mode != AudioManager.MODE_IN_COMMUNICATION) {
-                audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+            val targetMode = when {
+                previousAudioMode == AudioManager.MODE_IN_CALL -> AudioManager.MODE_IN_CALL
+                audioManager.mode == AudioManager.MODE_IN_CALL -> AudioManager.MODE_IN_CALL
+                else -> AudioManager.MODE_IN_COMMUNICATION
+            }
+
+            if (audioManager.mode != targetMode) {
+                audioManager.mode = targetMode
                 Log.i(
                     TAG,
-                    "Audio mode -> MODE_IN_COMMUNICATION (was=$previousAudioMode) route=$normalizedRoute"
+                    "Audio mode -> ${modeToString(targetMode)} (was=$previousAudioMode) route=$normalizedRoute"
+                )
+            } else {
+                Log.i(
+                    TAG,
+                    "Audio mode giữ nguyên ${modeToString(targetMode)} route=$normalizedRoute"
                 )
             }
         } catch (t: Throwable) {
@@ -267,6 +278,17 @@ class PlaybackThread(
             communicationDeviceSet = communicationDeviceSet,
             selectedDevice = selectedDevice,
         )
+    }
+
+
+    private fun modeToString(mode: Int): String {
+        return when (mode) {
+            AudioManager.MODE_IN_CALL -> "MODE_IN_CALL"
+            AudioManager.MODE_IN_COMMUNICATION -> "MODE_IN_COMMUNICATION"
+            AudioManager.MODE_NORMAL -> "MODE_NORMAL"
+            AudioManager.MODE_RINGTONE -> "MODE_RINGTONE"
+            else -> "mode=$mode"
+        }
     }
 
     private fun restoreRoute(
