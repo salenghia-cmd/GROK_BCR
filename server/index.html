@@ -1,0 +1,799 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Web bridge 2 chiều - chống rít/rè</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #111827;
+      --muted: #94a3b8;
+      --text: #e5e7eb;
+      --line: #243041;
+      --ok: #16a34a;
+      --warn: #f59e0b;
+      --bad: #ef4444;
+      --btn: #1f2937;
+      --btn2: #2563eb;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background: linear-gradient(180deg, #0b1220, #111827);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    .wrap {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+
+    .card {
+      background: rgba(17, 24, 39, .95);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.25);
+    }
+
+    h1 {
+      font-size: 22px;
+      margin: 0 0 8px;
+    }
+
+    .sub {
+      color: var(--muted);
+      font-size: 14px;
+      margin-bottom: 16px;
+      line-height: 1.5;
+    }
+
+    .grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: 1fr;
+    }
+
+    @media (min-width: 768px) {
+      .grid-2 {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    label {
+      display: block;
+      font-size: 13px;
+      color: #cbd5e1;
+      margin-bottom: 6px;
+    }
+
+    input, button, textarea {
+      width: 100%;
+      font: inherit;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: #0b1220;
+      color: var(--text);
+      padding: 12px 14px;
+    }
+
+    textarea {
+      min-height: 260px;
+      resize: vertical;
+      white-space: pre-wrap;
+    }
+
+    .row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .row > * {
+      flex: 1 1 180px;
+    }
+
+    button {
+      background: var(--btn);
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    button.primary {
+      background: var(--btn2);
+      border-color: #3b82f6;
+    }
+
+    button.good {
+      background: #14532d;
+      border-color: #166534;
+    }
+
+    button.warn {
+      background: #78350f;
+      border-color: #92400e;
+    }
+
+    button.bad {
+      background: #7f1d1d;
+      border-color: #991b1b;
+    }
+
+    button:disabled {
+      opacity: .55;
+      cursor: not-allowed;
+    }
+
+    .status {
+      display: grid;
+      gap: 8px;
+      grid-template-columns: 1fr;
+      margin-top: 8px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 42px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: #0b1220;
+      color: #dbeafe;
+      font-size: 14px;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--bad);
+      flex: 0 0 auto;
+    }
+
+    .dot.ok { background: var(--ok); }
+    .dot.warn { background: var(--warn); }
+
+    .muted {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .kv {
+      display: grid;
+      grid-template-columns: 170px 1fr;
+      gap: 6px 10px;
+      font-size: 14px;
+      margin-top: 10px;
+    }
+
+    .kv div:nth-child(odd) {
+      color: var(--muted);
+    }
+
+    code {
+      background: #020617;
+      padding: 2px 6px;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Web bridge 2 chiều - chống rít/rè</h1>
+      <div class="sub">
+        Mở web bằng <code>https://IP-LAN:8443/index.html</code><br>
+        Bên dt1/BCR nhập realtime URL dạng <code>wss://IP-LAN:8443/ws?session=&lt;session-id&gt;</code><br>
+        Web và dt1 phải dùng cùng Session ID.<br>
+        Bản này tự lấy <b>sample rate/format</b> từ handset, rồi resample đúng trước khi phát.
+      </div>
+
+      <div class="grid grid-2">
+        <div>
+          <label for="sessionId">Session ID</label>
+          <input id="sessionId" placeholder="vd: test123" />
+        </div>
+        <div>
+          <label for="wsUrl">WS URL</label>
+          <input id="wsUrl" placeholder="wss://192.168.1.100:8443/ws" />
+        </div>
+      </div>
+
+      <div class="grid grid-2" style="margin-top:12px;">
+        <div>
+          <label for="fallbackRate">Fallback rate (chỉ dùng khi handset chưa báo)</label>
+          <input id="fallbackRate" value="16000" />
+        </div>
+        <div>
+          <label for="formatInfo">Định dạng nhận từ handset</label>
+          <input id="formatInfo" value="Chưa có media_info" readonly />
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:14px;">
+        <button id="btnConnect" class="primary">Kết nối</button>
+        <button id="btnDisconnect" class="bad" disabled>Ngắt</button>
+        <button id="btnMic" class="good" disabled>Bật mic web</button>
+        <button id="btnClear" class="warn">Xóa log</button>
+      </div>
+
+      <div class="status">
+        <div class="pill"><span id="dotWs" class="dot"></span><span id="txtWs">Chưa kết nối WebSocket</span></div>
+        <div class="pill"><span id="dotPeer" class="dot"></span><span id="txtPeer">Handset chưa online</span></div>
+        <div class="pill"><span id="dotMic" class="dot"></span><span id="txtMic">Mic web đang tắt</span></div>
+      </div>
+
+      <div class="kv">
+        <div>Secure context</div><div id="infoSecure">-</div>
+        <div>Trang web</div><div id="infoPage">-</div>
+        <div>Playback context</div><div id="infoPlayback">-</div>
+        <div>Handset media</div><div id="infoRemote">-</div>
+        <div>Mic input</div><div id="infoMicRate">-</div>
+        <div>Playback queue</div><div id="infoQueue">-</div>
+        <div>Trạng thái</div><div id="infoState">-</div>
+      </div>
+
+      <div style="margin-top:14px;">
+        <label for="logBox">Log</label>
+        <textarea id="logBox" readonly></textarea>
+      </div>
+
+      <div class="muted" style="margin-top:12px;">
+        Lưu ý:
+        <br>1) Web chỉ decode <code>pcm_s16le</code>. App Android repo của bạn hiện cũng đang gửi đúng format này.
+        <br>2) Browser playback thường chạy ở sample rate riêng của máy/webview, nên phải resample trước khi phát.
+        <br>3) Nếu Samsung đã cài <code>rootCA.pem</code> nhưng app Android vẫn lỗi WSS, vẫn cần trust user certificates ở app Android.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    const el = {
+      sessionId: $('sessionId'),
+      wsUrl: $('wsUrl'),
+      fallbackRate: $('fallbackRate'),
+      formatInfo: $('formatInfo'),
+      btnConnect: $('btnConnect'),
+      btnDisconnect: $('btnDisconnect'),
+      btnMic: $('btnMic'),
+      btnClear: $('btnClear'),
+      logBox: $('logBox'),
+      dotWs: $('dotWs'),
+      txtWs: $('txtWs'),
+      dotPeer: $('dotPeer'),
+      txtPeer: $('txtPeer'),
+      dotMic: $('dotMic'),
+      txtMic: $('txtMic'),
+      infoSecure: $('infoSecure'),
+      infoPage: $('infoPage'),
+      infoPlayback: $('infoPlayback'),
+      infoRemote: $('infoRemote'),
+      infoMicRate: $('infoMicRate'),
+      infoQueue: $('infoQueue'),
+      infoState: $('infoState'),
+    };
+
+    let ws = null;
+    let handsetConnected = false;
+
+    let remoteMedia = {
+      sampleRate: 8000,
+      channels: 1,
+      bits: 16,
+      format: 'pcm_s16le',
+      source: 'fallback',
+    };
+
+    let playbackCtx = null;
+    let playbackNode = null;
+    let playbackQueue = [];
+    let playbackOffset = 0;
+    let playbackSilenceGain = null;
+
+    let micStream = null;
+    let micCtx = null;
+    let micSource = null;
+    let micProcessor = null;
+    let micSilenceGain = null;
+    let micEnabled = false;
+
+    function log(...args) {
+      const line = `[${new Date().toLocaleTimeString()}] ${args.join(' ')}`;
+      el.logBox.value += line + '\n';
+      el.logBox.scrollTop = el.logBox.scrollHeight;
+      console.log(...args);
+    }
+
+    function setDot(dotEl, type) {
+      dotEl.classList.remove('ok', 'warn');
+      if (type === 'ok') dotEl.classList.add('ok');
+      if (type === 'warn') dotEl.classList.add('warn');
+    }
+
+    function queueSampleCount() {
+      let total = 0;
+      for (let i = 0; i < playbackQueue.length; i++) {
+        total += playbackQueue[i].length;
+      }
+      total -= playbackOffset;
+      return Math.max(0, total);
+    }
+
+    function queueLatencyMs() {
+      const sr = playbackCtx?.sampleRate || 48000;
+      return Math.round((queueSampleCount() / sr) * 1000);
+    }
+
+    function updateFormatInfo() {
+      el.formatInfo.value = `${remoteMedia.format} / ${remoteMedia.channels}ch / ${remoteMedia.bits}-bit / ${remoteMedia.sampleRate}Hz (${remoteMedia.source})`;
+    }
+
+    function updateUi() {
+      const connected = !!ws && ws.readyState === WebSocket.OPEN;
+
+      setDot(el.dotWs, connected ? 'ok' : '');
+      el.txtWs.textContent = connected ? 'Đã kết nối WebSocket' : 'Chưa kết nối WebSocket';
+
+      setDot(el.dotPeer, handsetConnected ? 'ok' : '');
+      el.txtPeer.textContent = handsetConnected ? 'Handset đã online' : 'Handset chưa online';
+
+      setDot(el.dotMic, micEnabled ? 'ok' : '');
+      el.txtMic.textContent = micEnabled ? 'Mic web đang bật' : 'Mic web đang tắt';
+
+      el.btnConnect.disabled = connected;
+      el.btnDisconnect.disabled = !connected;
+      el.btnMic.disabled = !connected;
+      el.btnMic.textContent = micEnabled ? 'Tắt mic web' : 'Bật mic web';
+
+      el.infoSecure.textContent = window.isSecureContext ? 'Có' : 'Không';
+      el.infoPage.textContent = window.location.href;
+      el.infoPlayback.textContent = playbackCtx ? `${playbackCtx.sampleRate} Hz` : '-';
+      el.infoRemote.textContent = `${remoteMedia.sampleRate}Hz / ${remoteMedia.channels}ch / ${remoteMedia.bits}bit / ${remoteMedia.format} (${remoteMedia.source})`;
+      el.infoMicRate.textContent = micCtx ? `${micCtx.sampleRate} Hz` : '-';
+      el.infoQueue.textContent = `${queueSampleCount()} samples (~${queueLatencyMs()} ms)`;
+      el.infoState.textContent = connected
+        ? (handsetConnected ? 'WebSocket OK, handset online' : 'WebSocket OK, chờ handset')
+        : 'Chưa kết nối';
+
+      updateFormatInfo();
+    }
+
+    function savePrefs() {
+      localStorage.setItem('bridge.sessionId', el.sessionId.value.trim());
+      localStorage.setItem('bridge.wsUrl', el.wsUrl.value.trim());
+      localStorage.setItem('bridge.fallbackRate', el.fallbackRate.value.trim());
+    }
+
+    function guessWsUrl() {
+      const host = window.location.hostname || '127.0.0.1';
+      const isHttps = window.location.protocol === 'https:';
+      const scheme = isHttps ? 'wss' : 'ws';
+      const port = isHttps ? '8443' : '8081';
+      return `${scheme}://${host}:${port}/ws`;
+    }
+
+    function loadPrefs() {
+      el.sessionId.value = localStorage.getItem('bridge.sessionId') || 'test123';
+      el.wsUrl.value = localStorage.getItem('bridge.wsUrl') || guessWsUrl();
+      el.fallbackRate.value = localStorage.getItem('bridge.fallbackRate') || '8000';
+      remoteMedia.sampleRate = Number(el.fallbackRate.value) || 8000;
+      updateUi();
+    }
+
+    function ensureAudioPlayback() {
+      if (playbackCtx) return;
+
+      playbackCtx = new (window.AudioContext || window.webkitAudioContext)();
+      playbackNode = playbackCtx.createScriptProcessor(2048, 0, 1);
+      playbackSilenceGain = playbackCtx.createGain();
+      playbackSilenceGain.gain.value = 1.0;
+
+      playbackNode.onaudioprocess = (event) => {
+        const out = event.outputBuffer.getChannelData(0);
+        out.fill(0);
+
+        let i = 0;
+        while (i < out.length && playbackQueue.length > 0) {
+          const chunk = playbackQueue[0];
+          const remain = chunk.length - playbackOffset;
+          const copyCount = Math.min(remain, out.length - i);
+
+          out.set(chunk.subarray(playbackOffset, playbackOffset + copyCount), i);
+
+          i += copyCount;
+          playbackOffset += copyCount;
+
+          if (playbackOffset >= chunk.length) {
+            playbackQueue.shift();
+            playbackOffset = 0;
+          }
+        }
+      };
+
+      playbackNode.connect(playbackSilenceGain);
+      playbackSilenceGain.connect(playbackCtx.destination);
+      updateUi();
+    }
+
+    async function resumePlayback() {
+      ensureAudioPlayback();
+      if (playbackCtx && playbackCtx.state !== 'running') {
+        await playbackCtx.resume();
+      }
+      updateUi();
+    }
+
+    function int16InterleavedToMonoFloat32(arrayBuffer, channels) {
+      const input = new Int16Array(arrayBuffer);
+      const ch = Math.max(1, Number(channels) || 1);
+      const frameCount = Math.floor(input.length / ch);
+      const out = new Float32Array(frameCount);
+
+      if (ch === 1) {
+        for (let i = 0; i < frameCount; i++) {
+          out[i] = Math.max(-1, Math.min(1, input[i] / 32768));
+        }
+        return out;
+      }
+
+      for (let frame = 0; frame < frameCount; frame++) {
+        let sum = 0;
+        const base = frame * ch;
+        for (let c = 0; c < ch; c++) {
+          sum += input[base + c] / 32768;
+        }
+        out[frame] = Math.max(-1, Math.min(1, sum / ch));
+      }
+      return out;
+    }
+
+    function downmixToMono(inputBuffer) {
+      const channelCount = inputBuffer.numberOfChannels;
+      const length = inputBuffer.length;
+      const mono = new Float32Array(length);
+
+      if (channelCount === 1) {
+        mono.set(inputBuffer.getChannelData(0));
+        return mono;
+      }
+
+      for (let ch = 0; ch < channelCount; ch++) {
+        const data = inputBuffer.getChannelData(ch);
+        for (let i = 0; i < length; i++) {
+          mono[i] += data[i] / channelCount;
+        }
+      }
+      return mono;
+    }
+
+    function resampleFloat32(samples, inRate, outRate) {
+      const inputRate = Number(inRate) || 0;
+      const outputRate = Number(outRate) || 0;
+
+      if (!inputRate || !outputRate || inputRate === outputRate) {
+        return samples;
+      }
+
+      const ratio = inputRate / outputRate;
+      const outLength = Math.max(1, Math.round(samples.length / ratio));
+      const out = new Float32Array(outLength);
+
+      for (let i = 0; i < outLength; i++) {
+        const pos = i * ratio;
+        const left = Math.floor(pos);
+        const right = Math.min(left + 1, samples.length - 1);
+        const frac = pos - left;
+        out[i] = samples[left] * (1 - frac) + samples[right] * frac;
+      }
+      return out;
+    }
+
+    function float32ToInt16Buffer(samples) {
+      const buf = new ArrayBuffer(samples.length * 2);
+      const view = new DataView(buf);
+      for (let i = 0; i < samples.length; i++) {
+        let s = Math.max(-1, Math.min(1, samples[i]));
+        view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+      }
+      return buf;
+    }
+
+    function clearPlaybackQueue() {
+      playbackQueue = [];
+      playbackOffset = 0;
+      updateUi();
+    }
+
+    function setRemoteMedia(meta, source = 'server') {
+      remoteMedia = {
+        sampleRate: Number(meta.sampleRate) || Number(el.fallbackRate.value) || 16000,
+        channels: Number(meta.channels) || 1,
+        bits: Number(meta.bits) || 16,
+        format: String(meta.format || 'pcm_s16le'),
+        source,
+      };
+      updateUi();
+      log(`Remote media: ${remoteMedia.sampleRate}Hz/${remoteMedia.channels}ch/${remoteMedia.bits}bit ${remoteMedia.format} (${source})`);
+    }
+
+    function enqueuePlayback(arrayBuffer) {
+      ensureAudioPlayback();
+
+      if (remoteMedia.format !== 'pcm_s16le') {
+        log(`Bỏ qua audio vì format chưa hỗ trợ: ${remoteMedia.format}`);
+        return;
+      }
+
+      const mono = int16InterleavedToMonoFloat32(arrayBuffer, remoteMedia.channels);
+      const resampled = resampleFloat32(mono, remoteMedia.sampleRate, playbackCtx.sampleRate);
+      playbackQueue.push(resampled);
+
+      const latency = queueLatencyMs();
+      if (latency > 800) {
+        playbackQueue = playbackQueue.slice(-8);
+        playbackOffset = 0;
+        log(`Queue quá dài (${latency} ms), đã cắt bớt để tránh bể tiếng`);
+      }
+
+      updateUi();
+    }
+
+    async function startMic() {
+      if (micEnabled) return;
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        throw new Error('WebSocket chưa kết nối');
+      }
+
+      await resumePlayback();
+
+      micStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+        video: false,
+      });
+
+      micCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (micCtx.state !== 'running') {
+        await micCtx.resume();
+      }
+
+      micSource = micCtx.createMediaStreamSource(micStream);
+      micProcessor = micCtx.createScriptProcessor(2048, micSource.channelCount || 1, 1);
+      micSilenceGain = micCtx.createGain();
+      micSilenceGain.gain.value = 0;
+
+      micProcessor.onaudioprocess = (event) => {
+        try {
+          if (!micEnabled || !ws || ws.readyState !== WebSocket.OPEN) return;
+
+          const mono = downmixToMono(event.inputBuffer);
+          const targetRate = remoteMedia.sampleRate || Number(el.fallbackRate.value) || 8000;
+          const resampled = resampleFloat32(mono, micCtx.sampleRate, targetRate);
+          const pcm = float32ToInt16Buffer(resampled);
+
+          ws.send(pcm);
+        } catch (err) {
+          log('Mic process error:', err.message || String(err));
+        }
+      };
+
+      micSource.connect(micProcessor);
+      micProcessor.connect(micSilenceGain);
+      micSilenceGain.connect(micCtx.destination);
+
+      micEnabled = true;
+      log(`Mic started. input=${micCtx.sampleRate}Hz, target=${remoteMedia.sampleRate || Number(el.fallbackRate.value) || 8000}Hz`);
+      updateUi();
+    }
+
+    function stopMic() {
+      micEnabled = false;
+
+      try { if (micProcessor) micProcessor.disconnect(); } catch (_) {}
+      try { if (micSource) micSource.disconnect(); } catch (_) {}
+      try { if (micSilenceGain) micSilenceGain.disconnect(); } catch (_) {}
+
+      micProcessor = null;
+      micSource = null;
+      micSilenceGain = null;
+
+      if (micStream) {
+        for (const track of micStream.getTracks()) {
+          try { track.stop(); } catch (_) {}
+        }
+      }
+      micStream = null;
+
+      if (micCtx) {
+        try { micCtx.close(); } catch (_) {}
+      }
+      micCtx = null;
+
+      log('Mic stopped');
+      updateUi();
+    }
+
+    async function connectWs() {
+      const sessionId = el.sessionId.value.trim();
+      let wsUrl = el.wsUrl.value.trim();
+
+      if (!sessionId) {
+        alert('Nhập Session ID trước');
+        return;
+      }
+
+      if (!wsUrl) {
+        wsUrl = guessWsUrl();
+        el.wsUrl.value = wsUrl;
+      }
+
+      if (!/^wss?:\/\//i.test(wsUrl)) {
+        alert('WS URL phải bắt đầu bằng ws:// hoặc wss://');
+        return;
+      }
+
+      savePrefs();
+      remoteMedia.sampleRate = Number(el.fallbackRate.value) || 8000;
+      remoteMedia.source = 'fallback';
+      clearPlaybackQueue();
+      await resumePlayback();
+
+      ws = new WebSocket(`${wsUrl}${wsUrl.includes('?') ? '&' : '?'}session=${encodeURIComponent(sessionId)}`);
+      ws.binaryType = 'arraybuffer';
+
+      ws.onopen = () => {
+        log('WebSocket open:', ws.url);
+
+        const hello = {
+          type: 'hello',
+          role: 'web',
+          session: sessionId,
+          sampleRate: remoteMedia.sampleRate,
+          channels: 1,
+          bits: 16,
+          format: 'pcm_s16le',
+        };
+
+        ws.send(JSON.stringify(hello));
+        updateUi();
+      };
+
+      ws.onmessage = (event) => {
+        if (typeof event.data !== 'string') {
+          enqueuePlayback(event.data);
+          return;
+        }
+
+        let msg = null;
+        try {
+          msg = JSON.parse(event.data);
+        } catch (_) {
+          log('Text message:', event.data);
+          return;
+        }
+
+        if (msg.type === 'hello_ack') {
+          log('hello_ack:', JSON.stringify(msg));
+          if (msg.format) {
+            setRemoteMedia(msg, handsetConnected ? 'hello_ack' : 'hello_ack/fallback');
+          }
+        } else if (msg.type === 'media_info') {
+          setRemoteMedia(msg, 'media_info');
+        } else if (msg.type === 'peer') {
+          handsetConnected = !!msg.connected;
+          log(`peer handset: ${handsetConnected ? 'connected' : 'disconnected'}`);
+          if (!handsetConnected) {
+            clearPlaybackQueue();
+          }
+        } else if (msg.type === 'pong') {
+          log('pong');
+        } else if (msg.type === 'state') {
+          log('state:', JSON.stringify(msg));
+        } else if (msg.type === 'error') {
+          log('server error:', msg.message || JSON.stringify(msg));
+        } else {
+          log('message:', JSON.stringify(msg));
+        }
+
+        updateUi();
+      };
+
+      ws.onerror = (event) => {
+        log('WebSocket error:', event.message || 'unknown');
+        updateUi();
+      };
+
+      ws.onclose = (event) => {
+        log(`WebSocket close: code=${event.code} reason=${event.reason || ''}`);
+        handsetConnected = false;
+        stopMic();
+        clearPlaybackQueue();
+        ws = null;
+        updateUi();
+      };
+
+      updateUi();
+    }
+
+    function disconnectWs() {
+      stopMic();
+      handsetConnected = false;
+      clearPlaybackQueue();
+
+      if (ws) {
+        try { ws.close(1000, 'manual close'); } catch (_) {}
+      }
+      ws = null;
+      updateUi();
+    }
+
+    async function toggleMic() {
+      if (micEnabled) {
+        stopMic();
+        return;
+      }
+
+      if (!window.isSecureContext) {
+        alert('Trang này chưa ở secure context. Hãy mở bằng HTTPS để dùng mic ổn trên điện thoại.');
+        return;
+      }
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        alert('Trình duyệt này không hỗ trợ getUserMedia.');
+        return;
+      }
+
+      try {
+        await startMic();
+      } catch (err) {
+        log('Không bật được mic:', err.message || String(err));
+        alert(`Không bật được mic: ${err.message || err}`);
+      }
+    }
+
+    el.btnConnect.addEventListener('click', connectWs);
+    el.btnDisconnect.addEventListener('click', disconnectWs);
+    el.btnMic.addEventListener('click', toggleMic);
+    el.btnClear.addEventListener('click', () => {
+      el.logBox.value = '';
+    });
+
+    el.sessionId.addEventListener('change', savePrefs);
+    el.wsUrl.addEventListener('change', savePrefs);
+    el.fallbackRate.addEventListener('change', () => {
+      savePrefs();
+      if (!handsetConnected) {
+        remoteMedia.sampleRate = Number(el.fallbackRate.value) || 8000;
+        remoteMedia.source = 'fallback';
+      }
+      updateUi();
+    });
+
+    window.addEventListener('beforeunload', () => {
+      try { disconnectWs(); } catch (_) {}
+    });
+
+    loadPrefs();
+    log('Trang đã sẵn sàng');
+    log(`Secure context: ${window.isSecureContext ? 'YES' : 'NO'}`);
+    if (!window.isSecureContext) {
+      log('Cảnh báo: nên mở trang bằng HTTPS để dùng mic trên điện thoại.');
+    }
+    updateUi();
+  </script>
+</body>
+</html>
