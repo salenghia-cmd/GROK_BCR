@@ -33,13 +33,13 @@ const sessions = new Map();
 
 function normalizeMeta(input = {}) {
   return {
-    sampleRate: Number(input.sampleRate) > 0 ? Number(input.sampleRate) : 8000,
+    sampleRate: Number(input.sampleRate) > 0 ? Number(input.sampleRate) : 16000,
     channels: Number(input.channels) > 0 ? Number(input.channels) : 1,
     bits: Number(input.bits) > 0 ? Number(input.bits) : 16,
     format: String(input.format || 'pcm_s16le'),
     deviceId: input.deviceId ? String(input.deviceId) : 'android',
-    playbackMode: input.playbackMode ? String(input.playbackMode) : 'bluetooth_sco',
-    injectMode: input.injectMode ? String(input.injectMode) : 'bluetooth_sco',
+    playbackMode: input.playbackMode ? String(input.playbackMode) : 'earpiece',
+    injectMode: input.injectMode ? String(input.injectMode) : 'vendor_incall',
   };
 }
 

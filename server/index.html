@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Web bridge 2 chiều - Bluetooth HFP/SCO</title>
+  <title>Web bridge 2 chiều - chống rít/rè</title>
   <style>
     :root {
       --bg: #0f172a;
@@ -189,12 +189,12 @@
 <body>
   <div class="wrap">
     <div class="card">
-      <h1>Web bridge 2 chiều - Bluetooth HFP/SCO</h1>
+      <h1>Web bridge 2 chiều - chống rít/rè</h1>
       <div class="sub">
         Mở web bằng <code>https://IP-LAN:8443/index.html</code><br>
         Bên dt1/BCR nhập realtime URL dạng <code>wss://IP-LAN:8443/ws?session=&lt;session-id&gt;</code><br>
         Web và dt1 phải dùng cùng Session ID.<br>
-        Bản này ưu tiên bridge qua <b>Bluetooth HFP/SCO</b>, tự lấy <b>sample rate/format</b> từ handset, rồi resample đúng trước khi phát.
+        Bản này tự lấy <b>sample rate/format</b> từ handset, rồi resample đúng trước khi phát.
       </div>
 
       <div class="grid grid-2">
@@ -249,7 +249,7 @@
 
       <div class="muted" style="margin-top:12px;">
         Lưu ý:
-        <br>1) Web chỉ decode <code>pcm_s16le</code>. Bản patch này ưu tiên 8kHz/mono để bám Bluetooth HFP/SCO.
+        <br>1) Web chỉ decode <code>pcm_s16le</code>. App Android repo của bạn hiện cũng đang gửi đúng format này.
         <br>2) Browser playback thường chạy ở sample rate riêng của máy/webview, nên phải resample trước khi phát.
         <br>3) Nếu Samsung đã cài <code>rootCA.pem</code> nhưng app Android vẫn lỗi WSS, vẫn cần trust user certificates ở app Android.
       </div>
@@ -517,7 +517,7 @@
 
     function setRemoteMedia(meta, source = 'server') {
       remoteMedia = {
-        sampleRate: Number(meta.sampleRate) || Number(el.fallbackRate.value) || 16000,
+        sampleRate: Number(meta.sampleRate) || Number(el.fallbackRate.value) || 8000,
         channels: Number(meta.channels) || 1,
         bits: Number(meta.bits) || 16,
         format: String(meta.format || 'pcm_s16le'),
