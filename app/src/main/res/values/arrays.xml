@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="pref_playback_mode_entries">
+        <item>Earpiece (khuyến nghị, ít echo)</item>
+        <item>Speaker (chỉ để test)</item>
+    </string-array>
+
+    <string-array name="pref_playback_mode_values">
+        <item>earpiece</item>
+        <item>speaker</item>
+    </string-array>
+
+    <string-array name="pref_inject_mode_entries">
+        <item>Vendor incall (ưu tiên)</item>
+        <item>Speaker loopback (chỉ test, dễ echo)</item>
+        <item>Noop (không inject)</item>
+    </string-array>
+
+    <string-array name="pref_inject_mode_values">
+        <item>vendor_incall</item>
+        <item>speaker_loopback</item>
+        <item>noop</item>
+    </string-array>
+</resources>
